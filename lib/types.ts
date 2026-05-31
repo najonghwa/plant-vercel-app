@@ -6,6 +6,11 @@ export type Plant = {
   water_level: string;
   sunlight: string;
   memo: string;
+  difficulty?: string;
+  environment_recommendation?: string;
+  care_note?: string;
+  soil_sensor_enabled?: boolean;
+  soil_sensor_device_id?: string | null;
   automation_enabled?: boolean;
   pump_device_id?: string | null;
   moisture_min_pct?: number | null;

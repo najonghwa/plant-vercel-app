@@ -2,7 +2,24 @@ import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import type { Plant } from "@/lib/types";
 
+async function ensurePlantMetadata() {
+  await query("alter table plants add column if not exists difficulty text not null default ''");
+  await query("alter table plants add column if not exists environment_recommendation text not null default ''");
+  await query("alter table plants add column if not exists care_note text not null default ''");
+  await query(
+    `create table if not exists plant_sensor_configs (
+       plant_id uuid primary key references plants(id) on delete cascade,
+       soil_sensor_enabled boolean not null default false,
+       soil_sensor_device_id text,
+       created_at timestamptz not null default now(),
+       updated_at timestamptz not null default now()
+     )`,
+  );
+}
+
 export async function GET() {
+  await ensurePlantMetadata();
+
   const plants = await query<Plant>(
     `select
        p.id,
@@ -12,6 +29,11 @@ export async function GET() {
        p.water_level,
        p.sunlight,
        p.memo,
+       p.difficulty,
+       p.environment_recommendation,
+       p.care_note,
+       coalesce(s.soil_sensor_enabled, false) as soil_sensor_enabled,
+       s.soil_sensor_device_id,
        coalesce(a.enabled, false) as automation_enabled,
        a.pump_device_id,
        a.moisture_min_pct::float8 as moisture_min_pct,
@@ -22,6 +44,7 @@ export async function GET() {
        p.updated_at
      from plants p
      left join plant_automation_configs a on a.plant_id = p.id
+     left join plant_sensor_configs s on s.plant_id = p.id
      order by p.location, p.name`,
   );
 
@@ -29,6 +52,8 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  await ensurePlantMetadata();
+
   const body = await request.json();
   const name = String(body.name ?? "").trim();
   const location = String(body.location ?? "거실");
@@ -42,9 +67,9 @@ export async function POST(request: Request) {
   }
 
   const plants = await query<Plant>(
-    `insert into plants (name, category, location, water_level, sunlight, memo)
-     values ($1, $2, $3, $4, $5, $6)
-     returning id, name, category, location, water_level, sunlight, memo, created_at, updated_at`,
+    `insert into plants (name, category, location, water_level, sunlight, memo, difficulty, environment_recommendation, care_note)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+     returning id, name, category, location, water_level, sunlight, memo, difficulty, environment_recommendation, care_note, created_at, updated_at`,
     [
       name,
       String(body.category ?? ""),
@@ -52,6 +77,9 @@ export async function POST(request: Request) {
       String(body.water_level ?? "보통"),
       String(body.sunlight ?? ""),
       String(body.memo ?? ""),
+      String(body.difficulty ?? ""),
+      String(body.environment_recommendation ?? ""),
+      String(body.care_note ?? ""),
     ],
   );
 

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getPool, query, queryOne } from "@/lib/db";
 import { seedPlants, seedWateringLogs } from "@/lib/seed";
+import { careProfiles } from "@/lib/careProfiles";
 
 const schema = `
 create extension if not exists pgcrypto;
@@ -13,9 +14,16 @@ create table if not exists plants (
   water_level text not null default '보통',
   sunlight text not null default '',
   memo text not null default '',
+  difficulty text not null default '',
+  environment_recommendation text not null default '',
+  care_note text not null default '',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table plants add column if not exists difficulty text not null default '';
+alter table plants add column if not exists environment_recommendation text not null default '';
+alter table plants add column if not exists care_note text not null default '';
 
 create table if not exists watering_logs (
   id uuid primary key default gen_random_uuid(),
@@ -51,6 +59,14 @@ create table if not exists plant_automation_configs (
   cooldown_hours integer not null default 12 check (cooldown_hours between 1 and 168),
   max_runs_per_day integer not null default 2 check (max_runs_per_day between 1 and 12),
   last_run_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists plant_sensor_configs (
+  plant_id uuid primary key references plants(id) on delete cascade,
+  soil_sensor_enabled boolean not null default false,
+  soil_sensor_device_id text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -121,6 +137,30 @@ export async function POST() {
          values
          ('베란다', 'esp32-balcony-01', 21.0, 68.0, 950, 36.0, now()),
          ('거실', 'esp32-living-01', 24.2, 55.0, 420, 42.0, now())`,
+      );
+    }
+
+    for (const [name, profile] of Object.entries(careProfiles)) {
+      await query(
+        `update plants
+         set
+           category = $2,
+           water_level = $3,
+           sunlight = $4,
+           difficulty = $5,
+           environment_recommendation = $6,
+           care_note = $7,
+           updated_at = now()
+         where name = $1`,
+        [
+          name,
+          profile.category,
+          profile.water_level,
+          profile.sunlight,
+          profile.difficulty,
+          profile.environment_recommendation,
+          profile.care_note,
+        ],
       );
     }
 

@@ -362,6 +362,99 @@ h1 {
   line-height: 1.45;
 }
 
+.sensor-link-row {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fafaf9;
+  padding: 8px;
+  color: #57534e;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.sensor-link-row select {
+  min-width: 0;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 0 8px;
+}
+
+.table-panel {
+  padding: 0;
+  overflow: hidden;
+}
+
+.table-panel .panel-title {
+  margin: 0;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.table-scroll {
+  overflow: auto;
+}
+
+.plant-table {
+  width: 100%;
+  min-width: 1500px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.plant-table th,
+.plant-table td {
+  border-bottom: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+  padding: 8px 10px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.plant-table th {
+  background: #f8fafc;
+  color: #64748b;
+  font-weight: 900;
+}
+
+.dot {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: #10b981;
+}
+
+.dot.soon {
+  background: #f59e0b;
+}
+
+.dot.late {
+  background: #e11d48;
+}
+
+.analysis-layout {
+  display: grid;
+  grid-template-columns: 360px minmax(0, 1fr);
+  gap: 18px;
+}
+
+.analysis-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.log-list {
+  margin-top: 14px;
+}
+
 .plant-photo {
   width: 100%;
   aspect-ratio: 16 / 10;
@@ -687,7 +780,8 @@ h1 {
   }
 
   .calendar-layout,
-  .photo-layout {
+  .photo-layout,
+  .analysis-layout {
     grid-template-columns: 1fr;
   }
 

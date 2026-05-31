@@ -6,6 +6,7 @@ import {
   Activity,
   CalendarDays,
   CheckCircle,
+  BarChart3,
   ChevronLeft,
   ChevronRight,
   Droplets,
@@ -92,7 +93,12 @@ function getSeason(dateString: string) {
   return "fall";
 }
 
-function environmentAdjustmentFor(plant: Plant, reading: SensorReading | undefined, today: string) {
+function environmentAdjustmentFor(
+  plant: Plant,
+  environmentReading: SensorReading | undefined,
+  soilReading: SensorReading | undefined,
+  today: string,
+) {
   let adjustment = 0;
   const reasons: string[] = [];
   const season = getSeason(today);
@@ -105,40 +111,44 @@ function environmentAdjustmentFor(plant: Plant, reading: SensorReading | undefin
     reasons.push("겨울이라 생장 둔화를 반영해 주기를 늦춤");
   }
 
-  if (reading) {
-    if (reading.temperature_c >= 28) {
+  if (environmentReading) {
+    if (environmentReading.temperature_c >= 28) {
       adjustment -= 1;
-      reasons.push(`온도 ${reading.temperature_c}°C로 높아 건조 속도 가산`);
-    } else if (reading.temperature_c <= 16) {
+      reasons.push(`온도 ${environmentReading.temperature_c}°C로 높아 건조 속도 가산`);
+    } else if (environmentReading.temperature_c <= 16) {
       adjustment += 1;
-      reasons.push(`온도 ${reading.temperature_c}°C로 낮아 과습 위험 반영`);
+      reasons.push(`온도 ${environmentReading.temperature_c}°C로 낮아 과습 위험 반영`);
     }
 
-    if (reading.humidity_pct <= 40) {
+    if (environmentReading.humidity_pct <= 40) {
       adjustment -= 1;
-      reasons.push(`습도 ${reading.humidity_pct}%로 낮아 수분 소모 가산`);
-    } else if (reading.humidity_pct >= 75) {
+      reasons.push(`습도 ${environmentReading.humidity_pct}%로 낮아 수분 소모 가산`);
+    } else if (environmentReading.humidity_pct >= 75) {
       adjustment += 1;
-      reasons.push(`습도 ${reading.humidity_pct}%로 높아 마름 속도 완화`);
+      reasons.push(`습도 ${environmentReading.humidity_pct}%로 높아 마름 속도 완화`);
     }
 
-    if (reading.light_lux >= 900) {
+    if (environmentReading.light_lux >= 900) {
       adjustment -= 1;
-      reasons.push(`조도 ${reading.light_lux}lx로 높아 증산량 가산`);
-    } else if (reading.light_lux <= 180) {
+      reasons.push(`조도 ${environmentReading.light_lux}lx로 높아 증산량 가산`);
+    } else if (environmentReading.light_lux <= 180) {
       adjustment += 1;
-      reasons.push(`조도 ${reading.light_lux}lx로 낮아 물 소모 완화`);
-    }
-
-    if (reading.soil_moisture_pct <= 28) {
-      adjustment -= 2;
-      reasons.push(`토양수분 ${reading.soil_moisture_pct}%로 낮아 우선 확인 권장`);
-    } else if (reading.soil_moisture_pct >= 65) {
-      adjustment += 2;
-      reasons.push(`토양수분 ${reading.soil_moisture_pct}%로 높아 과습 주의`);
+      reasons.push(`조도 ${environmentReading.light_lux}lx로 낮아 물 소모 완화`);
     }
   } else {
-    reasons.push("해당 구역 센서값이 없어 기록 기반 주기를 우선 사용");
+    reasons.push("해당 구역 온습도/조도 센서값이 없어 기록 기반 주기를 우선 사용");
+  }
+
+  if (soilReading) {
+    if (soilReading.soil_moisture_pct <= 28) {
+      adjustment -= 2;
+      reasons.push(`연결 토양수분 ${soilReading.soil_moisture_pct}%로 낮아 우선 확인 권장`);
+    } else if (soilReading.soil_moisture_pct >= 65) {
+      adjustment += 2;
+      reasons.push(`연결 토양수분 ${soilReading.soil_moisture_pct}%로 높아 과습 주의`);
+    }
+  } else {
+    reasons.push("식물에 연결된 토양수분 센서가 없어 환경/기록 기반으로 판단");
   }
 
   if (plant.water_level.includes("자주")) {
@@ -161,6 +171,10 @@ function buildPlantModel(plants: Plant[], logs: WateringLog[], readings: SensorR
     acc[reading.location] = reading;
     return acc;
   }, {});
+  const readingByDevice = readings.reduce<Record<string, SensorReading>>((acc, reading) => {
+    acc[reading.device_id] = reading;
+    return acc;
+  }, {});
 
   return plants.map<PlantModel>((plant) => {
     const plantLogs = (byPlant[plant.name] ?? []).sort((a, b) =>
@@ -174,7 +188,12 @@ function buildPlantModel(plants: Plant[], logs: WateringLog[], readings: SensorR
     const learnedIntervalRaw = mean(gaps.slice(-6));
     const learnedInterval = learnedIntervalRaw ? Math.round(learnedIntervalRaw) : null;
     const baseInterval = learnedInterval ?? estimateBaseInterval(plant.water_level);
-    const environment = environmentAdjustmentFor(plant, readingByLocation[plant.location], today);
+    const environmentReading = readingByLocation[plant.location];
+    const soilReading =
+      plant.soil_sensor_enabled && plant.soil_sensor_device_id
+        ? readingByDevice[plant.soil_sensor_device_id]
+        : undefined;
+    const environment = environmentAdjustmentFor(plant, environmentReading, soilReading, today);
     const interval = Math.max(2, Math.min(30, baseInterval + environment.adjustment));
     const lastWatered = dates.at(-1) ?? null;
     const nextDue = lastWatered ? addDays(lastWatered, interval) : null;
@@ -261,7 +280,8 @@ export default function Page() {
   const [query, setQuery] = useState("");
   const [location, setLocation] = useState<"전체" | "거실" | "베란다">("전체");
   const [sort, setSort] = useState<"priority" | "name">("priority");
-  const [activeTab, setActiveTab] = useState<"dashboard" | "calendar" | "add" | "photos">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "status" | "analysis" | "logs" | "calendar" | "add" | "photos">("dashboard");
+  const [selectedPlantId, setSelectedPlantId] = useState("");
   const [newPlant, setNewPlant] = useState(blankPlant);
   const [newLog, setNewLog] = useState({ plant_name: "", watered_at: today, memo: "" });
   const [bulkLog, setBulkLog] = useState({ plant_names: [] as string[], watered_at: today, memo: "" });
@@ -298,6 +318,8 @@ export default function Page() {
   }, []);
 
   const model = useMemo(() => buildPlantModel(plants, logs, readings, today), [plants, logs, readings, today]);
+  const selectedPlant = model.find((plant) => plant.id === selectedPlantId) ?? model[0] ?? null;
+  const availableSensorDevices = useMemo(() => Array.from(new Set(readings.map((reading) => reading.device_id))), [readings]);
   const filtered = useMemo(() => {
     return model
       .filter((plant) => location === "전체" || plant.location === location)
@@ -474,6 +496,31 @@ export default function Page() {
     );
   }
 
+  async function connectSoilSensor(plant: PlantModel, sensorDeviceId: string) {
+    const enabled = Boolean(sensorDeviceId);
+    const data = await fetchJson<{ config: Partial<Plant> }>(`/api/plants/${plant.id}/sensor`, {
+      method: "PUT",
+      body: JSON.stringify({
+        soil_sensor_enabled: enabled,
+        soil_sensor_device_id: sensorDeviceId,
+      }),
+    });
+
+    setPlants((prev) =>
+      prev.map((item) =>
+        item.id === plant.id
+          ? {
+              ...item,
+              soil_sensor_enabled: Boolean(data.config.soil_sensor_enabled),
+              soil_sensor_device_id: (data.config.soil_sensor_device_id as string | null) ?? null,
+            }
+          : sensorDeviceId && item.soil_sensor_device_id === sensorDeviceId
+            ? { ...item, soil_sensor_enabled: false }
+            : item,
+      ),
+    );
+  }
+
   return (
     <main className="shell">
       <header className="topbar">
@@ -522,6 +569,18 @@ export default function Page() {
         <button className={`tab ${activeTab === "dashboard" ? "active" : ""}`} onClick={() => setActiveTab("dashboard")}>
           <Leaf size={16} />
           관리판
+        </button>
+        <button className={`tab ${activeTab === "status" ? "active" : ""}`} onClick={() => setActiveTab("status")}>
+          <BarChart3 size={16} />
+          전체 현황
+        </button>
+        <button className={`tab ${activeTab === "analysis" ? "active" : ""}`} onClick={() => setActiveTab("analysis")}>
+          <Activity size={16} />
+          식물 분석
+        </button>
+        <button className={`tab ${activeTab === "logs" ? "active" : ""}`} onClick={() => setActiveTab("logs")}>
+          <Droplets size={16} />
+          전체 로그
         </button>
         <button className={`tab ${activeTab === "calendar" ? "active" : ""}`} onClick={() => setActiveTab("calendar")}>
           <CalendarDays size={16} />
@@ -638,6 +697,19 @@ export default function Page() {
                         : ""}
                     </p>
 
+                    <label className="sensor-link-row">
+                      <span>토양센서</span>
+                      <select
+                        value={plant.soil_sensor_enabled ? plant.soil_sensor_device_id ?? "" : ""}
+                        onChange={(event) => connectSoilSensor(plant, event.target.value)}
+                      >
+                        <option value="">미지정</option>
+                        {availableSensorDevices.map((deviceId) => (
+                          <option key={deviceId} value={deviceId}>{deviceId}</option>
+                        ))}
+                      </select>
+                    </label>
+
                     <button className="btn primary" onClick={() => quickWater(plant.name)}>
                       <Droplets size={16} />
                       오늘 물주기 완료
@@ -732,6 +804,156 @@ export default function Page() {
           </section>
         </aside>
       </section>
+      )}
+
+      {activeTab === "status" && (
+        <section className="wrap tab-page">
+          <div className="panel table-panel">
+            <div className="panel-title">
+              <h2>
+                <BarChart3 size={18} /> 전체 식물 현황
+              </h2>
+              <span className="meta">분석 주기와 환경 추천 포함</span>
+            </div>
+            <div className="table-scroll">
+              <table className="plant-table">
+                <thead>
+                  <tr>
+                    <th>알림</th>
+                    <th>식물</th>
+                    <th>분류</th>
+                    <th>위치</th>
+                    <th>물 선호도</th>
+                    <th>햇빛 선호도</th>
+                    <th>마지막 물준 날</th>
+                    <th>지난일수</th>
+                    <th>평균주기</th>
+                    <th>분석주기</th>
+                    <th>다음예정일</th>
+                    <th>D-day</th>
+                    <th>상태</th>
+                    <th>난이도</th>
+                    <th>토양센서</th>
+                    <th>온도</th>
+                    <th>습도</th>
+                    <th>환경추천</th>
+                    <th>메모</th>
+                    <th>기록수</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {model.map((plant) => {
+                    const status = statusFor(plant.dday);
+                    const locationReading = readings.find((reading) => reading.location === plant.location);
+                    return (
+                      <tr key={plant.id}>
+                        <td><span className={`dot ${status.className}`} /></td>
+                        <td>{plant.name}</td>
+                        <td>{plant.category}</td>
+                        <td>{plant.location}</td>
+                        <td>{plant.water_level}</td>
+                        <td>{plant.sunlight}</td>
+                        <td>{plant.lastWatered ?? "-"}</td>
+                        <td>{plant.lastWatered ? dateDiff(today, plant.lastWatered) : "-"}</td>
+                        <td>{plant.learnedInterval ?? "-"}</td>
+                        <td>{plant.interval}</td>
+                        <td>{plant.nextDue ?? "-"}</td>
+                        <td>{plant.dday ?? "-"}</td>
+                        <td>{status.label}</td>
+                        <td>{plant.difficulty || "-"}</td>
+                        <td>{plant.soil_sensor_enabled ? plant.soil_sensor_device_id : "-"}</td>
+                        <td>{locationReading ? `${locationReading.temperature_c}°C` : "-"}</td>
+                        <td>{locationReading ? `${locationReading.humidity_pct}%` : "-"}</td>
+                        <td>{plant.environment_recommendation || "-"}</td>
+                        <td>{plant.care_note || plant.memo || "-"}</td>
+                        <td>{plant.logs.length}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {activeTab === "analysis" && (
+        <section className="wrap tab-page analysis-layout">
+          <div className="panel">
+            <div className="panel-title">
+              <h2>
+                <Activity size={18} /> 식물별 기록/분석
+              </h2>
+            </div>
+            <select className="select" value={selectedPlant?.id ?? ""} onChange={(event) => setSelectedPlantId(event.target.value)}>
+              {model.map((plant) => (
+                <option key={plant.id} value={plant.id}>{plant.name}</option>
+              ))}
+            </select>
+            {selectedPlant && (
+              <div className="analysis-cards">
+                <div className="metric"><span className="meta">총 급수</span><strong>{selectedPlant.logs.length}회</strong></div>
+                <div className="metric"><span className="meta">최근 평균</span><strong>{selectedPlant.learnedInterval ?? "-"}일</strong></div>
+                <div className="metric"><span className="meta">분석 주기</span><strong>{selectedPlant.interval}일</strong></div>
+                <div className="metric"><span className="meta">다음 예정</span><strong>{selectedPlant.nextDue ?? "-"}</strong></div>
+              </div>
+            )}
+          </div>
+          {selectedPlant && (
+            <div className="panel">
+              <div className="panel-title">
+                <h2>{selectedPlant.name} 분석 근거</h2>
+                <span className="meta">{selectedPlant.difficulty || "난이도 미입력"}</span>
+              </div>
+              <div className="analysis-box standalone">
+                <ul>
+                  {selectedPlant.recommendationReasons.map((reason) => (
+                    <li key={reason}>{reason}</li>
+                  ))}
+                </ul>
+              </div>
+              <div className="calendar-items log-list">
+                {selectedPlant.logs.slice().reverse().map((log) => (
+                  <div className="calendar-item" key={log.id}>
+                    <div>
+                      <strong>{log.watered_at.slice(0, 10)}</strong>
+                      <span>{log.memo || log.source}</span>
+                    </div>
+                    <button className="icon-btn danger" onClick={() => deleteWateringLog(log)} title="기록 취소">
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </section>
+      )}
+
+      {activeTab === "logs" && (
+        <section className="wrap tab-page">
+          <div className="panel">
+            <div className="panel-title">
+              <h2>
+                <Droplets size={18} /> 전체 급수 로그
+              </h2>
+              <span className="meta">{logs.length}건</span>
+            </div>
+            <div className="calendar-items log-list">
+              {logs.map((log) => (
+                <div className="calendar-item" key={log.id}>
+                  <div>
+                    <strong>{log.watered_at.slice(0, 10)} · {log.plant_name}</strong>
+                    <span>{log.memo || (log.source === "automation" ? "자동급수" : "수동 기록")}</span>
+                  </div>
+                  <button className="icon-btn danger" onClick={() => deleteWateringLog(log)} title="기록 취소">
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
       )}
 
       {activeTab === "calendar" && (

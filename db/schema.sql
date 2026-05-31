@@ -8,9 +8,16 @@ create table if not exists plants (
   water_level text not null default '보통',
   sunlight text not null default '',
   memo text not null default '',
+  difficulty text not null default '',
+  environment_recommendation text not null default '',
+  care_note text not null default '',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table plants add column if not exists difficulty text not null default '';
+alter table plants add column if not exists environment_recommendation text not null default '';
+alter table plants add column if not exists care_note text not null default '';
 
 create table if not exists watering_logs (
   id uuid primary key default gen_random_uuid(),
@@ -46,6 +53,14 @@ create table if not exists plant_automation_configs (
   cooldown_hours integer not null default 12 check (cooldown_hours between 1 and 168),
   max_runs_per_day integer not null default 2 check (max_runs_per_day between 1 and 12),
   last_run_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists plant_sensor_configs (
+  plant_id uuid primary key references plants(id) on delete cascade,
+  soil_sensor_enabled boolean not null default false,
+  soil_sensor_device_id text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
