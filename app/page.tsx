@@ -5,6 +5,7 @@ import type { FormEvent } from "react";
 import {
   Activity,
   CalendarDays,
+  CheckCircle,
   Droplets,
   Home,
   Leaf,
@@ -14,11 +15,12 @@ import {
   Sprout,
   Sun,
   ThermometerSun,
+  Trash2,
 } from "lucide-react";
 import type { Plant, SensorReading, WateringLog } from "@/lib/types";
 
 type PlantModel = Plant & {
-  logs: string[];
+  logs: WateringLog[];
   lastWatered: string | null;
   interval: number;
   nextDue: string | null;
@@ -76,13 +78,16 @@ function estimateBaseInterval(waterLevel: string) {
 }
 
 function buildPlantModel(plants: Plant[], logs: WateringLog[], today: string) {
-  const byPlant = logs.reduce<Record<string, string[]>>((acc, log) => {
-    acc[log.plant_name] = [...(acc[log.plant_name] ?? []), log.watered_at.slice(0, 10)];
+  const byPlant = logs.reduce<Record<string, WateringLog[]>>((acc, log) => {
+    acc[log.plant_name] = [...(acc[log.plant_name] ?? []), log];
     return acc;
   }, {});
 
   return plants.map<PlantModel>((plant) => {
-    const dates = (byPlant[plant.name] ?? []).sort();
+    const plantLogs = (byPlant[plant.name] ?? []).sort((a, b) =>
+      a.watered_at.localeCompare(b.watered_at),
+    );
+    const dates = plantLogs.map((log) => log.watered_at.slice(0, 10));
     const gaps = dates
       .slice(1)
       .map((date, index) => dateDiff(date, dates[index]))
@@ -94,7 +99,7 @@ function buildPlantModel(plants: Plant[], logs: WateringLog[], today: string) {
 
     return {
       ...plant,
-      logs: dates,
+      logs: plantLogs,
       lastWatered,
       interval,
       nextDue,
@@ -109,6 +114,11 @@ function statusFor(dday: number | null) {
   if (dday === 0) return { label: "오늘 물주기", className: "soon" };
   if (dday <= 2) return { label: "곧 물주기", className: "soon" };
   return { label: "여유 있음", className: "ok" };
+}
+
+function compactPlantNames(plants: PlantModel[]) {
+  if (!plants.length) return "없음";
+  return plants.slice(0, 4).map((plant) => plant.name).join(", ") + (plants.length > 4 ? ` 외 ${plants.length - 4}` : "");
 }
 
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
@@ -136,6 +146,7 @@ export default function Page() {
   const [query, setQuery] = useState("");
   const [location, setLocation] = useState<"전체" | "거실" | "베란다">("전체");
   const [sort, setSort] = useState<"priority" | "name">("priority");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "calendar" | "add">("dashboard");
   const [newPlant, setNewPlant] = useState(blankPlant);
   const [newLog, setNewLog] = useState({ plant_name: "", watered_at: today, memo: "" });
   const [loading, setLoading] = useState(true);
@@ -186,6 +197,20 @@ export default function Page() {
   const overdue = model.filter((plant) => plant.dday !== null && plant.dday < 0).length;
   const dueToday = model.filter((plant) => plant.dday === 0).length;
   const soon = model.filter((plant) => plant.dday !== null && plant.dday > 0 && plant.dday <= 2).length;
+  const dangerPlants = model.filter((plant) => plant.dday !== null && plant.dday < 0);
+  const todayPlants = model.filter((plant) => plant.dday === 0);
+  const soonPlants = model.filter((plant) => plant.dday !== null && plant.dday > 0 && plant.dday <= 2);
+  const calendarDays = useMemo(() => {
+    const grouped = logs.reduce<Record<string, WateringLog[]>>((acc, log) => {
+      const date = log.watered_at.slice(0, 10);
+      acc[date] = [...(acc[date] ?? []), log];
+      return acc;
+    }, {});
+
+    return Object.entries(grouped)
+      .sort(([a], [b]) => b.localeCompare(a))
+      .slice(0, 45);
+  }, [logs]);
 
   async function addPlant(event: FormEvent) {
     event.preventDefault();
@@ -222,6 +247,29 @@ export default function Page() {
       body: JSON.stringify({ plant_name: plantName, watered_at: today, memo: "대시보드 퀵 물주기" }),
     });
     setLogs((prev) => [data.log, ...prev]);
+  }
+
+  async function deleteWateringLog(log: WateringLog) {
+    const ok = window.confirm(`${log.watered_at.slice(0, 10)} ${log.plant_name} 급수 기록을 취소할까요?`);
+    if (!ok) return;
+
+    await fetchJson<{ deleted: WateringLog }>(`/api/watering-logs/${log.id}`, {
+      method: "DELETE",
+    });
+    setLogs((prev) => prev.filter((item) => item.id !== log.id));
+  }
+
+  async function cancelTodayWatering(plant: PlantModel) {
+    const todayLog = [...plant.logs]
+      .reverse()
+      .find((log) => log.watered_at.slice(0, 10) === today);
+
+    if (!todayLog) {
+      window.alert("오늘 취소할 급수 기록이 없습니다.");
+      return;
+    }
+
+    await deleteWateringLog(todayLog);
   }
 
   async function toggleAutomation(plant: Plant) {
@@ -273,24 +321,44 @@ export default function Page() {
       </header>
 
       <section className="wrap stats">
-        <div className="stat">
-          <div className="stat-label">총 관리 식물</div>
-          <div className="stat-value">{model.length}종</div>
+        <div className="stat stat-danger">
+          <div className="stat-label">위험 · 이미 늦음</div>
+          <div className="stat-value">{overdue}건</div>
+          <p className="stat-detail">{compactPlantNames(dangerPlants)}</p>
         </div>
-        <div className="stat">
-          <div className="stat-label">오늘 급수</div>
-          <div className="stat-value">{wateredToday}건</div>
+        <div className="stat stat-today">
+          <div className="stat-label">오늘 물줘야 함</div>
+          <div className="stat-value">{dueToday}건</div>
+          <p className="stat-detail">{compactPlantNames(todayPlants)}</p>
         </div>
-        <div className="stat">
-          <div className="stat-label">지연 / 오늘</div>
-          <div className="stat-value">{overdue + dueToday}건</div>
-        </div>
-        <div className="stat">
-          <div className="stat-label">2일 이내 예정</div>
+        <div className="stat stat-soon">
+          <div className="stat-label">곧 물줘야 함</div>
           <div className="stat-value">{soon}건</div>
+          <p className="stat-detail">{compactPlantNames(soonPlants)}</p>
+        </div>
+        <div className="stat">
+          <div className="stat-label">오늘 완료</div>
+          <div className="stat-value">{wateredToday}건</div>
+          <p className="stat-detail">총 {model.length}종 관리 중</p>
         </div>
       </section>
 
+      <nav className="wrap tabs">
+        <button className={`tab ${activeTab === "dashboard" ? "active" : ""}`} onClick={() => setActiveTab("dashboard")}>
+          <Leaf size={16} />
+          관리판
+        </button>
+        <button className={`tab ${activeTab === "calendar" ? "active" : ""}`} onClick={() => setActiveTab("calendar")}>
+          <CalendarDays size={16} />
+          급수 캘린더
+        </button>
+        <button className={`tab ${activeTab === "add" ? "active" : ""}`} onClick={() => setActiveTab("add")}>
+          <Plus size={16} />
+          새 식물
+        </button>
+      </nav>
+
+      {activeTab === "dashboard" && (
       <section className="wrap content">
         <div>
           {error && <div className="error">{error}</div>}
@@ -379,6 +447,12 @@ export default function Page() {
                       <Droplets size={16} />
                       오늘 물주기 완료
                     </button>
+                    {plant.logs.some((log) => log.watered_at.slice(0, 10) === today) && (
+                      <button className="btn danger" onClick={() => cancelTodayWatering(plant)}>
+                        <Trash2 size={16} />
+                        오늘 기록 취소
+                      </button>
+                    )}
                     <button className="btn" onClick={() => toggleAutomation(plant)}>
                       {plant.automation_enabled ? "자동급수 끄기" : "자동급수 대상으로 지정"}
                     </button>
@@ -437,61 +511,6 @@ export default function Page() {
           <section className="panel">
             <div className="panel-title">
               <h2>
-                <Plus size={18} /> 새 식물
-              </h2>
-            </div>
-            <form className="form-grid" onSubmit={addPlant}>
-              <input className="input" required placeholder="식물 이름" value={newPlant.name} onChange={(event) => setNewPlant({ ...newPlant, name: event.target.value })} />
-              <select
-                className="select"
-                value={newPlant.location}
-                onChange={(event) =>
-                  setNewPlant({
-                    ...newPlant,
-                    location: event.target.value,
-                    pump_device_id: event.target.value === "베란다" ? "pump-balcony-01" : "pump-living-01",
-                  })
-                }
-              >
-                <option value="거실">거실</option>
-                <option value="베란다">베란다</option>
-              </select>
-              <input className="input" placeholder="분류" value={newPlant.category} onChange={(event) => setNewPlant({ ...newPlant, category: event.target.value })} />
-              <input className="input" placeholder="물 요구" value={newPlant.water_level} onChange={(event) => setNewPlant({ ...newPlant, water_level: event.target.value })} />
-              <input className="input" placeholder="일조량" value={newPlant.sunlight} onChange={(event) => setNewPlant({ ...newPlant, sunlight: event.target.value })} />
-              <input className="input" placeholder="메모" value={newPlant.memo} onChange={(event) => setNewPlant({ ...newPlant, memo: event.target.value })} />
-              <label className="meta">
-                <input
-                  type="checkbox"
-                  checked={newPlant.automation_enabled}
-                  onChange={(event) =>
-                    setNewPlant({
-                      ...newPlant,
-                      automation_enabled: event.target.checked,
-                      pump_device_id: newPlant.location === "베란다" ? "pump-balcony-01" : "pump-living-01",
-                    })
-                  }
-                />{" "}
-                이 식물을 자동급수 대상으로 저장
-              </label>
-              {newPlant.automation_enabled && (
-                <>
-                  <input className="input" placeholder="펌프 장치 ID" value={newPlant.pump_device_id} onChange={(event) => setNewPlant({ ...newPlant, pump_device_id: event.target.value })} />
-                  <input className="input" type="number" min="1" max="100" placeholder="급수 시작 토양수분 %" value={newPlant.moisture_min_pct} onChange={(event) => setNewPlant({ ...newPlant, moisture_min_pct: Number(event.target.value) })} />
-                  <input className="input" type="number" min="1" max="30" placeholder="펌프 작동 초" value={newPlant.watering_seconds} onChange={(event) => setNewPlant({ ...newPlant, watering_seconds: Number(event.target.value) })} />
-                  <input className="input" type="number" min="1" max="168" placeholder="재급수 대기 시간" value={newPlant.cooldown_hours} onChange={(event) => setNewPlant({ ...newPlant, cooldown_hours: Number(event.target.value) })} />
-                </>
-              )}
-              <button className="btn primary" type="submit">
-                <Leaf size={16} />
-                DB에 식물 저장
-              </button>
-            </form>
-          </section>
-
-          <section className="panel">
-            <div className="panel-title">
-              <h2>
                 <CalendarDays size={18} /> 급수 기록
               </h2>
             </div>
@@ -514,6 +533,104 @@ export default function Page() {
           </section>
         </aside>
       </section>
+      )}
+
+      {activeTab === "calendar" && (
+        <section className="wrap tab-page">
+          <div className="panel">
+            <div className="panel-title">
+              <h2>
+                <CalendarDays size={18} /> 급수 캘린더
+              </h2>
+              <span className="meta">최근 45일 기록</span>
+            </div>
+
+            <div className="calendar-list">
+              {calendarDays.map(([date, dayLogs]) => (
+                <div className="calendar-day" key={date}>
+                  <div className="calendar-date">
+                    <strong>{date}</strong>
+                    <span>{dayLogs.length}건</span>
+                  </div>
+                  <div className="calendar-items">
+                    {dayLogs.map((log) => (
+                      <div className="calendar-item" key={log.id}>
+                        <div>
+                          <strong>{log.plant_name}</strong>
+                          <span>{log.memo || (log.source === "automation" ? "자동급수" : "수동 기록")}</span>
+                        </div>
+                        <button className="icon-btn danger" onClick={() => deleteWateringLog(log)} title="기록 취소">
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {activeTab === "add" && (
+        <section className="wrap tab-page">
+          <div className="panel add-panel">
+            <div className="panel-title">
+              <h2>
+                <Plus size={18} /> 새 식물 추가
+              </h2>
+              <span className="meta">저장하면 바로 DB에 들어갑니다.</span>
+            </div>
+            <form className="form-grid add-form" onSubmit={addPlant}>
+              <input className="input" required placeholder="식물 이름" value={newPlant.name} onChange={(event) => setNewPlant({ ...newPlant, name: event.target.value })} />
+              <select
+                className="select"
+                value={newPlant.location}
+                onChange={(event) =>
+                  setNewPlant({
+                    ...newPlant,
+                    location: event.target.value,
+                    pump_device_id: event.target.value === "베란다" ? "pump-balcony-01" : "pump-living-01",
+                  })
+                }
+              >
+                <option value="거실">거실</option>
+                <option value="베란다">베란다</option>
+              </select>
+              <input className="input" placeholder="분류" value={newPlant.category} onChange={(event) => setNewPlant({ ...newPlant, category: event.target.value })} />
+              <input className="input" placeholder="물 요구" value={newPlant.water_level} onChange={(event) => setNewPlant({ ...newPlant, water_level: event.target.value })} />
+              <input className="input" placeholder="일조량" value={newPlant.sunlight} onChange={(event) => setNewPlant({ ...newPlant, sunlight: event.target.value })} />
+              <input className="input" placeholder="메모" value={newPlant.memo} onChange={(event) => setNewPlant({ ...newPlant, memo: event.target.value })} />
+              <label className="check-row">
+                <input
+                  type="checkbox"
+                  checked={newPlant.automation_enabled}
+                  onChange={(event) =>
+                    setNewPlant({
+                      ...newPlant,
+                      automation_enabled: event.target.checked,
+                      pump_device_id: newPlant.location === "베란다" ? "pump-balcony-01" : "pump-living-01",
+                    })
+                  }
+                />
+                <span>이 식물을 자동급수 대상으로 저장</span>
+              </label>
+              {newPlant.automation_enabled && (
+                <>
+                  <input className="input" placeholder="펌프 장치 ID" value={newPlant.pump_device_id} onChange={(event) => setNewPlant({ ...newPlant, pump_device_id: event.target.value })} />
+                  <input className="input" type="number" min="1" max="100" placeholder="급수 시작 토양수분 %" value={newPlant.moisture_min_pct} onChange={(event) => setNewPlant({ ...newPlant, moisture_min_pct: Number(event.target.value) })} />
+                  <input className="input" type="number" min="1" max="30" placeholder="펌프 작동 초" value={newPlant.watering_seconds} onChange={(event) => setNewPlant({ ...newPlant, watering_seconds: Number(event.target.value) })} />
+                  <input className="input" type="number" min="1" max="168" placeholder="재급수 대기 시간" value={newPlant.cooldown_hours} onChange={(event) => setNewPlant({ ...newPlant, cooldown_hours: Number(event.target.value) })} />
+                </>
+              )}
+              <button className="btn primary" type="submit">
+                <CheckCircle size={16} />
+                DB에 식물 저장
+              </button>
+            </form>
+          </div>
+        </section>
+      )}
     </main>
   );
 }
