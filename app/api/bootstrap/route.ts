@@ -79,43 +79,48 @@ create index if not exists pump_commands_device_status_idx
 `;
 
 export async function POST() {
-  await getPool().query(schema);
+  try {
+    await getPool().query(schema);
 
-  const plantCount = await queryOne<{ count: string }>("select count(*)::text as count from plants");
+    const plantCount = await queryOne<{ count: string }>("select count(*)::text as count from plants");
 
-  if (plantCount?.count === "0") {
-    for (const plant of seedPlants) {
+    if (plantCount?.count === "0") {
+      for (const plant of seedPlants) {
+        await query(
+          `insert into plants (name, category, location, water_level, sunlight, memo)
+           values ($1, $2, $3, $4, $5, $6)
+           on conflict (name) do nothing`,
+          plant,
+        );
+      }
+
+      for (const [wateredAt, plantName] of seedWateringLogs) {
+        await query(
+          `insert into watering_logs (plant_id, plant_name, watered_at, memo, source)
+           select id, name, $1::date, '', 'import'
+           from plants
+           where name = $2`,
+          [wateredAt, plantName],
+        );
+      }
+
       await query(
-        `insert into plants (name, category, location, water_level, sunlight, memo)
-         values ($1, $2, $3, $4, $5, $6)
-         on conflict (name) do nothing`,
-        plant,
+        `insert into sensor_readings (location, device_id, temperature_c, humidity_pct, light_lux, soil_moisture_pct, recorded_at)
+         values
+         ('베란다', 'esp32-balcony-01', 21.0, 68.0, 950, 36.0, now()),
+         ('거실', 'esp32-living-01', 24.2, 55.0, 420, 42.0, now())`,
       );
     }
 
-    for (const [wateredAt, plantName] of seedWateringLogs) {
-      await query(
-        `insert into watering_logs (plant_id, plant_name, watered_at, memo, source)
-         select id, name, $1::date, '', 'import'
-         from plants
-         where name = $2`,
-        [wateredAt, plantName],
-      );
-    }
+    const counts = {
+      plants: await queryOne<{ count: string }>("select count(*)::text as count from plants"),
+      wateringLogs: await queryOne<{ count: string }>("select count(*)::text as count from watering_logs"),
+      sensorReadings: await queryOne<{ count: string }>("select count(*)::text as count from sensor_readings"),
+    };
 
-    await query(
-      `insert into sensor_readings (location, device_id, temperature_c, humidity_pct, light_lux, soil_moisture_pct, recorded_at)
-       values
-       ('베란다', 'esp32-balcony-01', 21.0, 68.0, 950, 36.0, now()),
-       ('거실', 'esp32-living-01', 24.2, 55.0, 420, 42.0, now())`,
-    );
+    return NextResponse.json({ ok: true, counts });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown bootstrap error";
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
-
-  const counts = {
-    plants: await queryOne<{ count: string }>("select count(*)::text as count from plants"),
-    wateringLogs: await queryOne<{ count: string }>("select count(*)::text as count from watering_logs"),
-    sensorReadings: await queryOne<{ count: string }>("select count(*)::text as count from sensor_readings"),
-  };
-
-  return NextResponse.json({ ok: true, counts });
 }
