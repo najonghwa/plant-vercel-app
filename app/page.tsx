@@ -6,8 +6,11 @@ import {
   Activity,
   CalendarDays,
   CheckCircle,
+  ChevronLeft,
+  ChevronRight,
   Droplets,
   Home,
+  Image as ImageIcon,
   Leaf,
   Plus,
   RefreshCw,
@@ -17,12 +20,16 @@ import {
   ThermometerSun,
   Trash2,
 } from "lucide-react";
-import type { Plant, SensorReading, WateringLog } from "@/lib/types";
+import type { Plant, PlantPhoto, SensorReading, WateringLog } from "@/lib/types";
 
 type PlantModel = Plant & {
   logs: WateringLog[];
   lastWatered: string | null;
   interval: number;
+  baseInterval: number;
+  learnedInterval: number | null;
+  environmentAdjustment: number;
+  recommendationReasons: string[];
   nextDue: string | null;
   dday: number | null;
 };
@@ -77,9 +84,81 @@ function estimateBaseInterval(waterLevel: string) {
   return 7;
 }
 
-function buildPlantModel(plants: Plant[], logs: WateringLog[], today: string) {
+function getSeason(dateString: string) {
+  const month = Number(dateString.slice(5, 7));
+  if ([12, 1, 2].includes(month)) return "winter";
+  if ([6, 7, 8].includes(month)) return "summer";
+  if ([3, 4, 5].includes(month)) return "spring";
+  return "fall";
+}
+
+function environmentAdjustmentFor(plant: Plant, reading: SensorReading | undefined, today: string) {
+  let adjustment = 0;
+  const reasons: string[] = [];
+  const season = getSeason(today);
+
+  if (season === "summer") {
+    adjustment -= 1;
+    reasons.push("여름이라 증산량을 반영해 주기를 당김");
+  } else if (season === "winter") {
+    adjustment += 2;
+    reasons.push("겨울이라 생장 둔화를 반영해 주기를 늦춤");
+  }
+
+  if (reading) {
+    if (reading.temperature_c >= 28) {
+      adjustment -= 1;
+      reasons.push(`온도 ${reading.temperature_c}°C로 높아 건조 속도 가산`);
+    } else if (reading.temperature_c <= 16) {
+      adjustment += 1;
+      reasons.push(`온도 ${reading.temperature_c}°C로 낮아 과습 위험 반영`);
+    }
+
+    if (reading.humidity_pct <= 40) {
+      adjustment -= 1;
+      reasons.push(`습도 ${reading.humidity_pct}%로 낮아 수분 소모 가산`);
+    } else if (reading.humidity_pct >= 75) {
+      adjustment += 1;
+      reasons.push(`습도 ${reading.humidity_pct}%로 높아 마름 속도 완화`);
+    }
+
+    if (reading.light_lux >= 900) {
+      adjustment -= 1;
+      reasons.push(`조도 ${reading.light_lux}lx로 높아 증산량 가산`);
+    } else if (reading.light_lux <= 180) {
+      adjustment += 1;
+      reasons.push(`조도 ${reading.light_lux}lx로 낮아 물 소모 완화`);
+    }
+
+    if (reading.soil_moisture_pct <= 28) {
+      adjustment -= 2;
+      reasons.push(`토양수분 ${reading.soil_moisture_pct}%로 낮아 우선 확인 권장`);
+    } else if (reading.soil_moisture_pct >= 65) {
+      adjustment += 2;
+      reasons.push(`토양수분 ${reading.soil_moisture_pct}%로 높아 과습 주의`);
+    }
+  } else {
+    reasons.push("해당 구역 센서값이 없어 기록 기반 주기를 우선 사용");
+  }
+
+  if (plant.water_level.includes("자주")) {
+    adjustment -= 1;
+    reasons.push("식물 물 요구가 높은 편");
+  } else if (plant.water_level.includes("적게")) {
+    adjustment += 1;
+    reasons.push("식물 물 요구가 낮은 편");
+  }
+
+  return { adjustment, reasons };
+}
+
+function buildPlantModel(plants: Plant[], logs: WateringLog[], readings: SensorReading[], today: string) {
   const byPlant = logs.reduce<Record<string, WateringLog[]>>((acc, log) => {
     acc[log.plant_name] = [...(acc[log.plant_name] ?? []), log];
+    return acc;
+  }, {});
+  const readingByLocation = readings.reduce<Record<string, SensorReading>>((acc, reading) => {
+    acc[reading.location] = reading;
     return acc;
   }, {});
 
@@ -92,16 +171,29 @@ function buildPlantModel(plants: Plant[], logs: WateringLog[], today: string) {
       .slice(1)
       .map((date, index) => dateDiff(date, dates[index]))
       .filter((gap) => gap > 0);
-    const learnedInterval = mean(gaps.slice(-6));
-    const interval = Math.round(learnedInterval ?? estimateBaseInterval(plant.water_level));
+    const learnedIntervalRaw = mean(gaps.slice(-6));
+    const learnedInterval = learnedIntervalRaw ? Math.round(learnedIntervalRaw) : null;
+    const baseInterval = learnedInterval ?? estimateBaseInterval(plant.water_level);
+    const environment = environmentAdjustmentFor(plant, readingByLocation[plant.location], today);
+    const interval = Math.max(2, Math.min(30, baseInterval + environment.adjustment));
     const lastWatered = dates.at(-1) ?? null;
     const nextDue = lastWatered ? addDays(lastWatered, interval) : null;
+    const recommendationReasons = [
+      learnedInterval
+        ? `최근 급수 간격 평균 ${learnedInterval}일을 반영`
+        : `기록이 부족해 기본 주기 ${baseInterval}일을 사용`,
+      ...environment.reasons,
+    ];
 
     return {
       ...plant,
       logs: plantLogs,
       lastWatered,
       interval,
+      baseInterval,
+      learnedInterval,
+      environmentAdjustment: environment.adjustment,
+      recommendationReasons,
       nextDue,
       dday: nextDue ? dateDiff(nextDue, today) : null,
     };
@@ -119,6 +211,28 @@ function statusFor(dday: number | null) {
 function compactPlantNames(plants: PlantModel[]) {
   if (!plants.length) return "없음";
   return plants.slice(0, 4).map((plant) => plant.name).join(", ") + (plants.length > 4 ? ` 외 ${plants.length - 4}` : "");
+}
+
+function getMonthDays(month: string) {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const first = new Date(year, monthNumber - 1, 1);
+  const start = new Date(first);
+  start.setDate(first.getDate() - first.getDay());
+
+  return Array.from({ length: 42 }, (_, index) => {
+    const day = new Date(start);
+    day.setDate(start.getDate() + index);
+    return {
+      date: formatLocalDate(day),
+      inMonth: day.getMonth() === monthNumber - 1,
+    };
+  });
+}
+
+function moveMonth(month: string, delta: number) {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const date = new Date(year, monthNumber - 1 + delta, 1);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
 
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
@@ -142,13 +256,18 @@ export default function Page() {
   const today = useMemo(() => formatLocalDate(new Date()), []);
   const [plants, setPlants] = useState<Plant[]>([]);
   const [logs, setLogs] = useState<WateringLog[]>([]);
+  const [photos, setPhotos] = useState<PlantPhoto[]>([]);
   const [readings, setReadings] = useState<SensorReading[]>([]);
   const [query, setQuery] = useState("");
   const [location, setLocation] = useState<"전체" | "거실" | "베란다">("전체");
   const [sort, setSort] = useState<"priority" | "name">("priority");
-  const [activeTab, setActiveTab] = useState<"dashboard" | "calendar" | "add">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "calendar" | "add" | "photos">("dashboard");
   const [newPlant, setNewPlant] = useState(blankPlant);
   const [newLog, setNewLog] = useState({ plant_name: "", watered_at: today, memo: "" });
+  const [bulkLog, setBulkLog] = useState({ plant_names: [] as string[], watered_at: today, memo: "" });
+  const [selectedDate, setSelectedDate] = useState(today);
+  const [calendarMonth, setCalendarMonth] = useState(today.slice(0, 7));
+  const [photoForm, setPhotoForm] = useState({ plant_id: "", image_url: "", note: "", captured_at: today });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -157,14 +276,16 @@ export default function Page() {
     setLoading(true);
 
     try {
-      const [plantsData, logsData, sensorData] = await Promise.all([
+      const [plantsData, logsData, sensorData, photoData] = await Promise.all([
         fetchJson<{ plants: Plant[] }>("/api/plants"),
         fetchJson<{ logs: WateringLog[] }>("/api/watering-logs"),
         fetchJson<{ readings: SensorReading[] }>("/api/sensor-readings"),
+        fetchJson<{ photos: PlantPhoto[] }>("/api/plant-photos"),
       ]);
       setPlants(plantsData.plants);
       setLogs(logsData.logs);
       setReadings(sensorData.readings);
+      setPhotos(photoData.photos);
     } catch (err) {
       setError(err instanceof Error ? err.message : "데이터를 불러오지 못했습니다.");
     } finally {
@@ -176,7 +297,7 @@ export default function Page() {
     loadAll();
   }, []);
 
-  const model = useMemo(() => buildPlantModel(plants, logs, today), [plants, logs, today]);
+  const model = useMemo(() => buildPlantModel(plants, logs, readings, today), [plants, logs, readings, today]);
   const filtered = useMemo(() => {
     return model
       .filter((plant) => location === "전체" || plant.location === location)
@@ -200,17 +321,23 @@ export default function Page() {
   const dangerPlants = model.filter((plant) => plant.dday !== null && plant.dday < 0);
   const todayPlants = model.filter((plant) => plant.dday === 0);
   const soonPlants = model.filter((plant) => plant.dday !== null && plant.dday > 0 && plant.dday <= 2);
-  const calendarDays = useMemo(() => {
-    const grouped = logs.reduce<Record<string, WateringLog[]>>((acc, log) => {
+  const logsByDate = useMemo(() => {
+    return logs.reduce<Record<string, WateringLog[]>>((acc, log) => {
       const date = log.watered_at.slice(0, 10);
       acc[date] = [...(acc[date] ?? []), log];
       return acc;
     }, {});
-
-    return Object.entries(grouped)
-      .sort(([a], [b]) => b.localeCompare(a))
-      .slice(0, 45);
   }, [logs]);
+
+  const photosByPlant = useMemo(() => {
+    return photos.reduce<Record<string, PlantPhoto[]>>((acc, photo) => {
+      acc[photo.plant_id] = [...(acc[photo.plant_id] ?? []), photo];
+      return acc;
+    }, {});
+  }, [photos]);
+
+  const monthDays = useMemo(() => getMonthDays(calendarMonth), [calendarMonth]);
+  const selectedDateLogs = logsByDate[selectedDate] ?? [];
 
   async function addPlant(event: FormEvent) {
     event.preventDefault();
@@ -224,12 +351,60 @@ export default function Page() {
 
   async function addWateringLog(event: FormEvent) {
     event.preventDefault();
-    const data = await fetchJson<{ log: WateringLog }>("/api/watering-logs", {
+    const plantNames = bulkLog.plant_names.length ? bulkLog.plant_names : [newLog.plant_name].filter(Boolean);
+    const wateredAt = bulkLog.plant_names.length ? bulkLog.watered_at : newLog.watered_at;
+    const memo = bulkLog.plant_names.length ? bulkLog.memo : newLog.memo;
+
+    if (!plantNames.length) {
+      window.alert("급수 기록을 저장할 식물을 선택해주세요.");
+      return;
+    }
+
+    const data = await fetchJson<{ log: WateringLog; logs: WateringLog[] }>("/api/watering-logs", {
       method: "POST",
-      body: JSON.stringify(newLog),
+      body: JSON.stringify({ plant_names: plantNames, watered_at: wateredAt, memo }),
     });
-    setLogs((prev) => [data.log, ...prev]);
+    setLogs((prev) => [...data.logs, ...prev]);
     setNewLog({ plant_name: "", watered_at: today, memo: "" });
+    setBulkLog({ plant_names: [], watered_at: today, memo: "" });
+  }
+
+  async function addWateringToSelectedDate(event: FormEvent) {
+    event.preventDefault();
+    if (!bulkLog.plant_names.length) {
+      window.alert("추가할 식물을 선택해주세요.");
+      return;
+    }
+
+    const data = await fetchJson<{ logs: WateringLog[] }>("/api/watering-logs", {
+      method: "POST",
+      body: JSON.stringify({
+        plant_names: bulkLog.plant_names,
+        watered_at: selectedDate,
+        memo: bulkLog.memo,
+      }),
+    });
+    setLogs((prev) => [...data.logs, ...prev]);
+    setBulkLog({ plant_names: [], watered_at: today, memo: "" });
+  }
+
+  function toggleBulkPlant(plantName: string) {
+    setBulkLog((prev) => ({
+      ...prev,
+      plant_names: prev.plant_names.includes(plantName)
+        ? prev.plant_names.filter((name) => name !== plantName)
+        : [...prev.plant_names, plantName],
+    }));
+  }
+
+  async function addPlantPhoto(event: FormEvent) {
+    event.preventDefault();
+    const data = await fetchJson<{ photo: PlantPhoto }>("/api/plant-photos", {
+      method: "POST",
+      body: JSON.stringify(photoForm),
+    });
+    setPhotos((prev) => [data.photo, ...prev]);
+    setPhotoForm({ plant_id: "", image_url: "", note: "", captured_at: today });
   }
 
   async function quickWater(plantName: string) {
@@ -356,6 +531,10 @@ export default function Page() {
           <Plus size={16} />
           새 식물
         </button>
+        <button className={`tab ${activeTab === "photos" ? "active" : ""}`} onClick={() => setActiveTab("photos")}>
+          <ImageIcon size={16} />
+          사진 기록
+        </button>
       </nav>
 
       {activeTab === "dashboard" && (
@@ -400,8 +579,12 @@ export default function Page() {
             <div className="grid">
               {filtered.map((plant) => {
                 const status = statusFor(plant.dday);
+                const latestPhoto = photosByPlant[plant.id]?.[0];
                 return (
                   <article className="card" key={plant.id}>
+                    {latestPhoto && (
+                      <img className="plant-photo" src={latestPhoto.image_url} alt={`${plant.name} 최근 사진`} />
+                    )}
                     <div className="card-head">
                       <div>
                         <h3>{plant.name}</h3>
@@ -419,7 +602,7 @@ export default function Page() {
                         <strong>{plant.lastWatered ?? "없음"}</strong>
                       </div>
                       <div className="metric">
-                        <span className="meta">권장 주기</span>
+                        <span className="meta">분석 주기</span>
                         <strong>{plant.interval}일</strong>
                       </div>
                       <div className="metric">
@@ -435,6 +618,18 @@ export default function Page() {
                     </div>
 
                     {plant.memo && <p className="memo">{plant.memo}</p>}
+
+                    <div className="analysis-box">
+                      <div className="analysis-head">
+                        <strong>추천 근거</strong>
+                        <span>{plant.environmentAdjustment === 0 ? "환경 보정 없음" : `환경 보정 ${plant.environmentAdjustment > 0 ? "+" : ""}${plant.environmentAdjustment}일`}</span>
+                      </div>
+                      <ul>
+                        {plant.recommendationReasons.slice(0, 3).map((reason) => (
+                          <li key={reason}>{reason}</li>
+                        ))}
+                      </ul>
+                    </div>
 
                     <p className="memo">
                       자동급수: {plant.automation_enabled ? "사용" : "미사용"}
@@ -515,19 +710,23 @@ export default function Page() {
               </h2>
             </div>
             <form className="form-grid" onSubmit={addWateringLog}>
-              <select className="select" required value={newLog.plant_name} onChange={(event) => setNewLog({ ...newLog, plant_name: event.target.value })}>
-                <option value="">식물 선택</option>
+              <input className="input" type="date" value={bulkLog.watered_at} onChange={(event) => setBulkLog({ ...bulkLog, watered_at: event.target.value })} />
+              <div className="check-list compact">
                 {plants.map((plant) => (
-                  <option key={plant.id} value={plant.name}>
-                    {plant.name}
-                  </option>
+                  <label key={plant.id} className="check-chip">
+                    <input
+                      type="checkbox"
+                      checked={bulkLog.plant_names.includes(plant.name)}
+                      onChange={() => toggleBulkPlant(plant.name)}
+                    />
+                    <span>{plant.name}</span>
+                  </label>
                 ))}
-              </select>
-              <input className="input" type="date" value={newLog.watered_at} onChange={(event) => setNewLog({ ...newLog, watered_at: event.target.value })} />
-              <input className="input" placeholder="메모" value={newLog.memo} onChange={(event) => setNewLog({ ...newLog, memo: event.target.value })} />
+              </div>
+              <input className="input" placeholder="메모" value={bulkLog.memo} onChange={(event) => setBulkLog({ ...bulkLog, memo: event.target.value })} />
               <button className="btn primary" type="submit">
                 <Activity size={16} />
-                DB에 급수 기록 저장
+                선택한 식물 급수 기록 저장
               </button>
             </form>
           </section>
@@ -537,37 +736,87 @@ export default function Page() {
 
       {activeTab === "calendar" && (
         <section className="wrap tab-page">
-          <div className="panel">
+          <div className="calendar-layout">
+          <div className="panel calendar-panel">
             <div className="panel-title">
               <h2>
                 <CalendarDays size={18} /> 급수 캘린더
               </h2>
-              <span className="meta">최근 45일 기록</span>
+              <div className="month-controls">
+                <button className="icon-btn" onClick={() => setCalendarMonth((prev) => moveMonth(prev, -1))}>
+                  <ChevronLeft size={16} />
+                </button>
+                <strong>{calendarMonth}</strong>
+                <button className="icon-btn" onClick={() => setCalendarMonth((prev) => moveMonth(prev, 1))}>
+                  <ChevronRight size={16} />
+                </button>
+              </div>
             </div>
 
-            <div className="calendar-list">
-              {calendarDays.map(([date, dayLogs]) => (
-                <div className="calendar-day" key={date}>
-                  <div className="calendar-date">
-                    <strong>{date}</strong>
-                    <span>{dayLogs.length}건</span>
-                  </div>
-                  <div className="calendar-items">
-                    {dayLogs.map((log) => (
-                      <div className="calendar-item" key={log.id}>
-                        <div>
-                          <strong>{log.plant_name}</strong>
-                          <span>{log.memo || (log.source === "automation" ? "자동급수" : "수동 기록")}</span>
-                        </div>
-                        <button className="icon-btn danger" onClick={() => deleteWateringLog(log)} title="기록 취소">
-                          <Trash2 size={15} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+            <div className="month-grid">
+              {["일", "월", "화", "수", "목", "금", "토"].map((day) => (
+                <div className="weekday" key={day}>{day}</div>
+              ))}
+              {monthDays.map((day) => (
+                <button
+                  className={`day-cell ${day.inMonth ? "" : "muted"} ${selectedDate === day.date ? "selected" : ""}`}
+                  key={day.date}
+                  onClick={() => setSelectedDate(day.date)}
+                >
+                  <span>{Number(day.date.slice(-2))}</span>
+                  {(logsByDate[day.date]?.length ?? 0) > 0 && (
+                    <strong>{logsByDate[day.date].length}건</strong>
+                  )}
+                </button>
               ))}
             </div>
+          </div>
+
+          <aside className="panel day-detail">
+            <div className="panel-title">
+              <h2>{selectedDate}</h2>
+              <span className="meta">{selectedDateLogs.length}건</span>
+            </div>
+
+            <div className="calendar-items">
+              {selectedDateLogs.length ? (
+                selectedDateLogs.map((log) => (
+                  <div className="calendar-item" key={log.id}>
+                    <div>
+                      <strong>{log.plant_name}</strong>
+                      <span>{log.memo || (log.source === "automation" ? "자동급수" : "수동 기록")}</span>
+                    </div>
+                    <button className="icon-btn danger" onClick={() => deleteWateringLog(log)} title="기록 취소">
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <div className="empty compact-empty">이 날의 급수 기록이 없습니다.</div>
+              )}
+            </div>
+
+            <form className="form-grid day-add-form" onSubmit={addWateringToSelectedDate}>
+              <div className="meta">이 날짜에 식물 추가 기록</div>
+              <div className="check-list compact">
+                {plants.map((plant) => (
+                  <label key={plant.id} className="check-chip">
+                    <input
+                      type="checkbox"
+                      checked={bulkLog.plant_names.includes(plant.name)}
+                      onChange={() => toggleBulkPlant(plant.name)}
+                    />
+                    <span>{plant.name}</span>
+                  </label>
+                ))}
+              </div>
+              <input className="input" placeholder="메모" value={bulkLog.memo} onChange={(event) => setBulkLog({ ...bulkLog, memo: event.target.value })} />
+              <button className="btn primary" type="submit">
+                <Plus size={16} />
+                선택 식물 추가
+              </button>
+            </form>
+          </aside>
           </div>
         </section>
       )}
@@ -628,6 +877,47 @@ export default function Page() {
                 DB에 식물 저장
               </button>
             </form>
+          </div>
+        </section>
+      )}
+
+      {activeTab === "photos" && (
+        <section className="wrap tab-page photo-layout">
+          <div className="panel add-panel">
+            <div className="panel-title">
+              <h2>
+                <ImageIcon size={18} /> 사진 기록 추가
+              </h2>
+              <span className="meta">지금은 이미지 URL 저장 방식입니다.</span>
+            </div>
+            <form className="form-grid add-form" onSubmit={addPlantPhoto}>
+              <select className="select" required value={photoForm.plant_id} onChange={(event) => setPhotoForm({ ...photoForm, plant_id: event.target.value })}>
+                <option value="">식물 선택</option>
+                {plants.map((plant) => (
+                  <option key={plant.id} value={plant.id}>{plant.name}</option>
+                ))}
+              </select>
+              <input className="input" type="date" value={photoForm.captured_at} onChange={(event) => setPhotoForm({ ...photoForm, captured_at: event.target.value })} />
+              <input className="input" required placeholder="사진 URL" value={photoForm.image_url} onChange={(event) => setPhotoForm({ ...photoForm, image_url: event.target.value })} />
+              <input className="input" placeholder="사진 메모" value={photoForm.note} onChange={(event) => setPhotoForm({ ...photoForm, note: event.target.value })} />
+              <button className="btn primary" type="submit">
+                <CheckCircle size={16} />
+                사진 기록 저장
+              </button>
+            </form>
+          </div>
+
+          <div className="photo-grid">
+            {photos.map((photo) => (
+              <article className="photo-card" key={photo.id}>
+                <img src={photo.image_url} alt={`${photo.plant_name} 사진`} />
+                <div>
+                  <strong>{photo.plant_name}</strong>
+                  <span>{photo.captured_at}</span>
+                  {photo.note && <p>{photo.note}</p>}
+                </div>
+              </article>
+            ))}
           </div>
         </section>
       )}

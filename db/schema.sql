@@ -63,6 +63,15 @@ create table if not exists pump_commands (
   completed_at timestamptz
 );
 
+create table if not exists plant_photos (
+  id uuid primary key default gen_random_uuid(),
+  plant_id uuid not null references plants(id) on delete cascade,
+  image_url text not null,
+  note text not null default '',
+  captured_at date not null default current_date,
+  created_at timestamptz not null default now()
+);
+
 create index if not exists watering_logs_plant_date_idx
   on watering_logs (plant_name, watered_at desc);
 
@@ -71,3 +80,6 @@ create index if not exists sensor_readings_location_recorded_idx
 
 create index if not exists pump_commands_device_status_idx
   on pump_commands (pump_device_id, status, requested_at desc);
+
+create index if not exists plant_photos_plant_captured_idx
+  on plant_photos (plant_id, captured_at desc, created_at desc);

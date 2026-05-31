@@ -49,3 +49,13 @@ export type PumpCommand = {
   requested_at: string;
   completed_at: string | null;
 };
+
+export type PlantPhoto = {
+  id: string;
+  plant_id: string;
+  plant_name: string;
+  image_url: string;
+  note: string;
+  captured_at: string;
+  created_at: string;
+};

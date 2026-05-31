@@ -7,12 +7,20 @@
 - `app/page.tsx`: 대시보드 화면
 - `app/api/plants`: 식물 목록 조회/추가
 - `app/api/watering-logs`: 급수 기록 조회/추가
+- `app/api/plant-photos`: 식물 사진 히스토리 조회/추가
 - `app/api/sensor-readings`: ESP32 센서값 조회/수신
 - `app/api/pump-commands`: 자동급수 펌프 명령 조회/완료 처리
 - `app/api/bootstrap`: DB 테이블 생성 및 초기 데이터 삽입
 - `db/schema.sql`: Postgres 스키마
 - `esp32/balcony_sensor_post.ino`: 베란다 센서 전송 예시
 - `esp32/pump_controller_poll.ino`: 펌프 릴레이 컨트롤러 예시
+
+## 앱 기능 메모
+
+- 급수 기록은 한 날짜에 여러 식물을 한 번에 저장할 수 있습니다.
+- 급수 캘린더는 월간 달력으로 표시되며, 날짜를 누르면 그날의 급수 기록을 보고 추가/삭제할 수 있습니다.
+- 사진 기록은 현재 이미지 URL 저장 방식입니다. 실제 파일 업로드 버튼을 붙이려면 Vercel Blob 같은 오브젝트 스토리지를 추가하고, 업로드 API가 반환한 URL을 `plant_photos.image_url`에 저장하면 됩니다.
+- 물주기 추천은 최근 급수 간격, 계절, 구역별 온도/습도/조도/토양수분, 식물별 물 요구도를 함께 반영하는 규칙 기반 분석 엔진으로 계산합니다.
 
 ## DB 선택
 
