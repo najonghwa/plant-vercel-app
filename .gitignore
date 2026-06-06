@@ -3,3 +3,5 @@ node_modules
 .env
 .env.local
 *.log
+esp32/micropython/secrets.py
+esp32/platformio-balcony/include/config.h

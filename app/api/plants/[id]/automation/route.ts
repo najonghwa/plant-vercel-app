@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { query, queryOne } from "@/lib/db";
 
+const BALCONY = "\uBCA0\uB780\uB2E4";
+
 type Params = {
   params: Promise<{ id: string }>;
 };
@@ -9,17 +11,17 @@ export async function PUT(request: Request, { params }: Params) {
   const { id } = await params;
   const body = await request.json();
 
-  const plant = await queryOne<{ id: string; location: "거실" | "베란다" }>(
+  const plant = await queryOne<{ id: string; location: string }>(
     "select id, location from plants where id = $1",
     [id],
   );
 
   if (!plant) {
-    return NextResponse.json({ error: "식물을 찾을 수 없습니다." }, { status: 404 });
+    return NextResponse.json({ error: "Plant not found." }, { status: 404 });
   }
 
   const enabled = Boolean(body.enabled);
-  const defaultPump = plant.location === "베란다" ? "pump-balcony-01" : "pump-living-01";
+  const defaultPump = plant.location === BALCONY ? "pump-balcony-01" : "pump-living-01";
 
   const configs = await query(
     `insert into plant_automation_configs

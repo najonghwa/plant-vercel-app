@@ -13,7 +13,7 @@ function isAuthorized(request: Request) {
 
 export async function GET(request: Request) {
   if (!isAuthorized(request)) {
-    return NextResponse.json({ error: "인증 토큰이 올바르지 않습니다." }, { status: 401 });
+    return NextResponse.json({ error: "Invalid device token." }, { status: 401 });
   }
 
   const url = new URL(request.url);
@@ -43,7 +43,7 @@ export async function GET(request: Request) {
 
 export async function PATCH(request: Request) {
   if (!isAuthorized(request)) {
-    return NextResponse.json({ error: "인증 토큰이 올바르지 않습니다." }, { status: 401 });
+    return NextResponse.json({ error: "Invalid device token." }, { status: 401 });
   }
 
   const body = await request.json();
@@ -51,7 +51,7 @@ export async function PATCH(request: Request) {
   const status = String(body.status ?? "completed");
 
   if (!commandId || !["running", "completed", "cancelled", "failed"].includes(status)) {
-    return NextResponse.json({ error: "command_id와 유효한 status가 필요합니다." }, { status: 400 });
+    return NextResponse.json({ error: "command_id and a valid status are required." }, { status: 400 });
   }
 
   const commands = await query<PumpCommand>(
@@ -86,7 +86,7 @@ export async function PATCH(request: Request) {
     await query(
       `insert into watering_logs (plant_id, plant_name, watered_at, memo, source)
        values ($1, $2, current_date, $3, 'automation')`,
-      [commands[0].plant_id, commands[0].plant_name, `자동급수 ${commands[0].watering_seconds}초`],
+      [commands[0].plant_id, commands[0].plant_name, `auto watering ${commands[0].watering_seconds}s`],
     );
   }
 
