@@ -470,16 +470,31 @@ export default function Page() {
   }
 
   async function toggleAutomation(plant: Plant) {
-    const enabled = !plant.automation_enabled;
+    await updateAutomation(plant, { enabled: !plant.automation_enabled });
+  }
+
+  async function updateAutomation(
+    plant: Plant,
+    overrides: Partial<{
+      enabled: boolean;
+      pump_device_id: string;
+      moisture_min_pct: number;
+      watering_seconds: number;
+      cooldown_hours: number;
+      max_runs_per_day: number;
+    }>,
+  ) {
+    const enabled = overrides.enabled ?? plant.automation_enabled ?? true;
     const config = await fetchJson<{ config: Partial<Plant> }>(`/api/plants/${plant.id}/automation`, {
       method: "PUT",
       body: JSON.stringify({
         enabled,
-        pump_device_id: plant.pump_device_id ?? (plant.location === "베란다" ? "pump-balcony-01" : "pump-living-01"),
-        moisture_min_pct: plant.moisture_min_pct ?? 30,
-        watering_seconds: plant.watering_seconds ?? 5,
-        cooldown_hours: plant.cooldown_hours ?? 12,
-        max_runs_per_day: plant.max_runs_per_day ?? 2,
+        pump_device_id:
+          overrides.pump_device_id ?? plant.pump_device_id ?? (plant.location === "베란다" ? "pump-balcony-01" : "pump-living-01"),
+        moisture_min_pct: overrides.moisture_min_pct ?? plant.moisture_min_pct ?? 30,
+        watering_seconds: overrides.watering_seconds ?? plant.watering_seconds ?? 5,
+        cooldown_hours: overrides.cooldown_hours ?? plant.cooldown_hours ?? 12,
+        max_runs_per_day: overrides.max_runs_per_day ?? plant.max_runs_per_day ?? 2,
       }),
     });
 
@@ -696,6 +711,64 @@ export default function Page() {
                         ? ` · ${plant.pump_device_id ?? "pump"} · 수분 ${plant.moisture_min_pct ?? 30}% 미만 · ${plant.watering_seconds ?? 5}초`
                         : ""}
                     </p>
+
+                    {plant.automation_enabled && (
+                      <div className="automation-grid">
+                        <label>
+                          <span>수분 기준 %</span>
+                          <input
+                            type="number"
+                            min="1"
+                            max="100"
+                            defaultValue={plant.moisture_min_pct ?? 30}
+                            onBlur={(event) => updateAutomation(plant, { moisture_min_pct: Number(event.target.value) })}
+                          />
+                        </label>
+                        <label>
+                          <span>급수 초</span>
+                          <input
+                            type="number"
+                            min="1"
+                            max="20"
+                            defaultValue={plant.watering_seconds ?? 5}
+                            onBlur={(event) => updateAutomation(plant, { watering_seconds: Number(event.target.value) })}
+                          />
+                        </label>
+                        <label>
+                          <span>쿨다운 시간</span>
+                          <input
+                            type="number"
+                            min="0"
+                            max="168"
+                            defaultValue={plant.cooldown_hours ?? 12}
+                            onBlur={(event) => updateAutomation(plant, { cooldown_hours: Number(event.target.value) })}
+                          />
+                        </label>
+                        <label>
+                          <span>하루 최대</span>
+                          <input
+                            type="number"
+                            min="1"
+                            max="20"
+                            defaultValue={plant.max_runs_per_day ?? 2}
+                            onBlur={(event) => updateAutomation(plant, { max_runs_per_day: Number(event.target.value) })}
+                          />
+                        </label>
+                        <button
+                          className="btn"
+                          onClick={() =>
+                            updateAutomation(plant, {
+                              moisture_min_pct: 30,
+                              watering_seconds: 5,
+                              cooldown_hours: 0,
+                              max_runs_per_day: 5,
+                            })
+                          }
+                        >
+                          테스트 설정 적용
+                        </button>
+                      </div>
+                    )}
 
                     <label className="sensor-link-row">
                       <span>토양센서</span>
