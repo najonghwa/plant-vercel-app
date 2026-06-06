@@ -485,12 +485,13 @@ export default function Page() {
     }>,
   ) {
     const enabled = overrides.enabled ?? plant.automation_enabled ?? true;
+    const balcony = "\uBCA0\uB780\uB2E4";
     const config = await fetchJson<{ config: Partial<Plant> }>(`/api/plants/${plant.id}/automation`, {
       method: "PUT",
       body: JSON.stringify({
         enabled,
         pump_device_id:
-          overrides.pump_device_id ?? plant.pump_device_id ?? (plant.location === "베란다" ? "pump-balcony-01" : "pump-living-01"),
+          overrides.pump_device_id ?? plant.pump_device_id ?? (plant.location === balcony ? "pump-balcony-01" : "pump-living-01"),
         moisture_min_pct: overrides.moisture_min_pct ?? plant.moisture_min_pct ?? 30,
         watering_seconds: overrides.watering_seconds ?? plant.watering_seconds ?? 5,
         cooldown_hours: overrides.cooldown_hours ?? plant.cooldown_hours ?? 12,
@@ -509,6 +510,40 @@ export default function Page() {
           : item,
       ),
     );
+  }
+
+  async function saveAutomationFromPanel(plant: Plant, target: HTMLElement) {
+    const panel = target.closest(".automation-grid");
+    const readNumber = (name: string, fallback: number) => {
+      const input = panel?.querySelector<HTMLInputElement>(`input[name="${name}"]`);
+      return Number(input?.value ?? fallback);
+    };
+
+    await updateAutomation(plant, {
+      moisture_min_pct: readNumber("moisture_min_pct", plant.moisture_min_pct ?? 30),
+      watering_seconds: readNumber("watering_seconds", plant.watering_seconds ?? 5),
+      cooldown_hours: readNumber("cooldown_hours", plant.cooldown_hours ?? 12),
+      max_runs_per_day: readNumber("max_runs_per_day", plant.max_runs_per_day ?? 2),
+    });
+    window.alert("자동급수 설정을 저장했습니다.");
+  }
+
+  async function applyTestAutomation(plant: Plant, target: HTMLElement) {
+    const panel = target.closest(".automation-grid");
+    const values = {
+      moisture_min_pct: 30,
+      watering_seconds: 5,
+      cooldown_hours: 0,
+      max_runs_per_day: 5,
+    };
+
+    Object.entries(values).forEach(([name, value]) => {
+      const input = panel?.querySelector<HTMLInputElement>(`input[name="${name}"]`);
+      if (input) input.value = String(value);
+    });
+
+    await updateAutomation(plant, values);
+    window.alert("테스트 설정을 저장했습니다. 다음 센서 POST에서 펌프 명령을 확인하세요.");
   }
 
   async function connectSoilSensor(plant: PlantModel, sensorDeviceId: string) {
@@ -717,55 +752,54 @@ export default function Page() {
                         <label>
                           <span>수분 기준 %</span>
                           <input
+                            name="moisture_min_pct"
                             type="number"
                             min="1"
                             max="100"
                             defaultValue={plant.moisture_min_pct ?? 30}
-                            onBlur={(event) => updateAutomation(plant, { moisture_min_pct: Number(event.target.value) })}
                           />
                         </label>
                         <label>
                           <span>급수 초</span>
                           <input
+                            name="watering_seconds"
                             type="number"
                             min="1"
                             max="20"
                             defaultValue={plant.watering_seconds ?? 5}
-                            onBlur={(event) => updateAutomation(plant, { watering_seconds: Number(event.target.value) })}
                           />
                         </label>
                         <label>
                           <span>쿨다운 시간</span>
                           <input
+                            name="cooldown_hours"
                             type="number"
                             min="0"
                             max="168"
                             defaultValue={plant.cooldown_hours ?? 12}
-                            onBlur={(event) => updateAutomation(plant, { cooldown_hours: Number(event.target.value) })}
                           />
                         </label>
                         <label>
                           <span>하루 최대</span>
                           <input
+                            name="max_runs_per_day"
                             type="number"
                             min="1"
                             max="20"
                             defaultValue={plant.max_runs_per_day ?? 2}
-                            onBlur={(event) => updateAutomation(plant, { max_runs_per_day: Number(event.target.value) })}
                           />
                         </label>
                         <button
                           type="button"
                           className="btn"
-                          onMouseDown={(event) => {
-                            event.preventDefault();
-                            updateAutomation(plant, {
-                              moisture_min_pct: 30,
-                              watering_seconds: 5,
-                              cooldown_hours: 0,
-                              max_runs_per_day: 5,
-                            });
-                          }}
+                          onClick={(event) => saveAutomationFromPanel(plant, event.currentTarget)}
+                        >
+                          자동급수 설정 저장
+                        </button>
+                        <button
+                          type="button"
+                          className="btn"
+                          onClick={(event) => applyTestAutomation(plant, event.currentTarget)}
                         >
                           테스트 설정 적용
                         </button>
