@@ -755,15 +755,17 @@ export default function Page() {
                           />
                         </label>
                         <button
+                          type="button"
                           className="btn"
-                          onClick={() =>
+                          onMouseDown={(event) => {
+                            event.preventDefault();
                             updateAutomation(plant, {
                               moisture_min_pct: 30,
                               watering_seconds: 5,
                               cooldown_hours: 0,
                               max_runs_per_day: 5,
-                            })
-                          }
+                            });
+                          }}
                         >
                           테스트 설정 적용
                         </button>
