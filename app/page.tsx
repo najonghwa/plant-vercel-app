@@ -546,6 +546,20 @@ export default function Page() {
     window.alert("테스트 설정을 저장했습니다. 다음 센서 POST에서 펌프 명령을 확인하세요.");
   }
 
+  async function queuePumpTest(plant: Plant) {
+    await fetchJson<{ command: unknown }>("/api/pump-commands", {
+      method: "POST",
+      body: JSON.stringify({
+        plant_id: plant.id,
+        plant_name: plant.name,
+        location: plant.location,
+        pump_device_id: plant.pump_device_id ?? "pump-balcony-01",
+        watering_seconds: 5,
+      }),
+    });
+    window.alert("펌프 테스트 명령을 만들었습니다. ESP32가 30초 안에 가져가서 5초 작동합니다.");
+  }
+
   async function connectSoilSensor(plant: PlantModel, sensorDeviceId: string) {
     const enabled = Boolean(sensorDeviceId);
     const data = await fetchJson<{ config: Partial<Plant> }>(`/api/plants/${plant.id}/sensor`, {
@@ -823,6 +837,11 @@ export default function Page() {
                       <Droplets size={16} />
                       오늘 물주기 완료
                     </button>
+                    {plant.automation_enabled && (
+                      <button className="btn" onClick={() => queuePumpTest(plant)}>
+                        펌프 테스트 5초
+                      </button>
+                    )}
                     {plant.logs.some((log) => log.watered_at.slice(0, 10) === today) && (
                       <button className="btn danger" onClick={() => cancelTodayWatering(plant)}>
                         <Trash2 size={16} />

@@ -35,8 +35,10 @@ const int wetValue = 1200;
 
 const int relayPin = 26;
 const bool relayActiveHigh = false;
+const bool forcePumpTestOnly = false;
 const bool pumpWiringTestOnBoot = false;
-const int pumpWiringTestSeconds = 10;
+const int pumpWiringTestSeconds = 3;
+const int pumpWiringRestSeconds = 60;
 
 unsigned long lastCloudPostAt = 0;
 unsigned long lastPumpPollAt = 0;
@@ -271,8 +273,19 @@ void pollPumpCommands() {
 }
 
 void setup() {
+  digitalWrite(relayPin, relayActiveHigh ? LOW : HIGH);
+  pinMode(relayPin, OUTPUT);
+
   Serial.begin(115200);
   delay(1000);
+  relayWrite(false);
+
+  if (forcePumpTestOnly) {
+    Serial.println("FORCE PUMP TEST ONLY MODE");
+    Serial.println("Pump will turn ON for 3 seconds, then OFF for 60 seconds, repeatedly.");
+    Serial.println("If relay LED turns on but pump does not run, check relay switch wiring/power side.");
+    return;
+  }
 
   Wire.begin(21, 22);
   lightMeter.begin();
@@ -286,9 +299,6 @@ void setup() {
     pinMode(moisturePowerPin, OUTPUT);
     setMoistureSensorPower(false);
   }
-  pinMode(relayPin, OUTPUT);
-  relayWrite(false);
-
   connectWifi();
 
   server.on("/", handleRoot);
@@ -308,6 +318,16 @@ void setup() {
 }
 
 void loop() {
+  if (forcePumpTestOnly) {
+    Serial.println("Pump FORCE TEST: ON");
+    relayWrite(true);
+    delay((unsigned long)pumpWiringTestSeconds * 1000);
+    relayWrite(false);
+    Serial.println("Pump FORCE TEST: OFF");
+    delay((unsigned long)pumpWiringRestSeconds * 1000);
+    return;
+  }
+
   server.handleClient();
 
   unsigned long now = millis();

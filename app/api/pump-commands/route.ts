@@ -41,6 +41,38 @@ export async function GET(request: Request) {
   return NextResponse.json({ commands });
 }
 
+export async function POST(request: Request) {
+  const body = await request.json();
+  const plantId = String(body.plant_id ?? "");
+  const plantName = String(body.plant_name ?? "");
+  const location = String(body.location ?? "\uBCA0\uB780\uB2E4");
+  const pumpDeviceId = String(body.pump_device_id ?? "pump-balcony-01");
+  const wateringSeconds = Math.max(1, Math.min(20, Number(body.watering_seconds ?? 5)));
+
+  if (!plantId || !plantName) {
+    return NextResponse.json({ error: "plant_id and plant_name are required." }, { status: 400 });
+  }
+
+  const commands = await query<PumpCommand>(
+    `insert into pump_commands (plant_id, plant_name, location, pump_device_id, watering_seconds, reason)
+     values ($1, $2, $3, $4, $5, 'manual dashboard pump test')
+     returning
+       id,
+       plant_id,
+       plant_name,
+       location,
+       pump_device_id,
+       watering_seconds,
+       reason,
+       status,
+       requested_at,
+       completed_at`,
+    [plantId, plantName, location, pumpDeviceId, wateringSeconds],
+  );
+
+  return NextResponse.json({ command: commands[0] }, { status: 201 });
+}
+
 export async function PATCH(request: Request) {
   if (!isAuthorized(request)) {
     return NextResponse.json({ error: "Invalid device token." }, { status: 401 });
