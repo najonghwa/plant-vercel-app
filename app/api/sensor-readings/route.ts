@@ -121,5 +121,31 @@ export async function POST(request: Request) {
     [location, soilMoisture, deviceId],
   );
 
-  return NextResponse.json({ reading: readings[0], pumpCommands: commands }, { status: 201 });
+  const automationCandidates = await query(
+    `select
+       p.name as plant_name,
+       p.location,
+       coalesce(a.enabled, false) as automation_enabled,
+       a.pump_device_id,
+       a.moisture_min_pct::float8 as moisture_min_pct,
+       a.watering_seconds,
+       a.cooldown_hours,
+       a.max_runs_per_day,
+       a.last_run_at,
+       coalesce(s.soil_sensor_enabled, false) as soil_sensor_enabled,
+       s.soil_sensor_device_id,
+       exists (
+         select 1
+         from pump_commands pending
+         where pending.plant_id = p.id and pending.status in ('pending', 'running')
+       ) as has_open_command
+     from plants p
+     left join plant_automation_configs a on a.plant_id = p.id
+     left join plant_sensor_configs s on s.plant_id = p.id
+     where s.soil_sensor_device_id = $1
+     order by p.name`,
+    [deviceId],
+  );
+
+  return NextResponse.json({ reading: readings[0], pumpCommands: commands, automationCandidates }, { status: 201 });
 }

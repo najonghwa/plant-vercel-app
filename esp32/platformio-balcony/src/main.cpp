@@ -35,7 +35,7 @@ const int wetValue = 1200;
 
 const int relayPin = 26;
 const bool relayActiveHigh = false;
-const bool pumpWiringTestOnBoot = true;
+const bool pumpWiringTestOnBoot = false;
 const int pumpWiringTestSeconds = 10;
 
 unsigned long lastCloudPostAt = 0;
@@ -44,8 +44,8 @@ unsigned long lastSensorReadAt = 0;
 unsigned long bootedAt = 0;
 bool pumpWiringTestDone = false;
 const unsigned long sensorReadIntervalMs = 30000;
-const unsigned long cloudPostIntervalMs = 600000;
-const unsigned long pumpPollIntervalMs = 120000;
+const unsigned long cloudPostIntervalMs = 60000;
+const unsigned long pumpPollIntervalMs = 30000;
 
 void relayWrite(bool on) {
   digitalWrite(relayPin, relayActiveHigh ? (on ? HIGH : LOW) : (on ? LOW : HIGH));
