@@ -170,7 +170,6 @@ h1 {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px;
-  margin-top: 24px;
 }
 
 .card,
@@ -183,8 +182,35 @@ h1 {
 }
 
 .stat {
-  padding: 18px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-areas:
+    "ico main"
+    "detail detail";
+  align-items: center;
+  gap: 6px 13px;
+  padding: 16px 18px;
 }
+
+.stat-ico {
+  grid-area: ico;
+  display: flex;
+  width: 44px;
+  height: 44px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 13px;
+  background: #9aa29a;
+  color: #fff;
+}
+
+.stat-main {
+  grid-area: main;
+}
+
+.stat-danger .stat-ico { background: var(--rose); }
+.stat-today .stat-ico { background: var(--amber); }
+.stat-soon .stat-ico { background: var(--green); }
 
 .stat-danger {
   border-color: #f3c9d2;
@@ -210,15 +236,24 @@ h1 {
 }
 
 .stat-value {
-  margin-top: 8px;
-  font-size: 30px;
+  margin-top: 2px;
+  font-size: 28px;
   font-weight: 900;
   letter-spacing: -.02em;
 }
 
+.stat-value em {
+  font-style: normal;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--muted);
+  margin-left: 3px;
+}
+
 .stat-detail {
-  min-height: 34px;
-  margin: 8px 0 0;
+  grid-area: detail;
+  min-height: 18px;
+  margin: 2px 0 0;
   color: #5d615a;
   font-size: 12px;
   line-height: 1.5;
@@ -255,14 +290,62 @@ h1 {
 }
 
 .tab-page {
-  padding: 22px 0 56px;
+  padding: 0;
+}
+
+/* ── 좌측 사이드바 레이아웃 ───────────── */
+.layout {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  gap: 22px;
+  padding: 24px 0 60px;
+  align-items: start;
+}
+
+.sidenav {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  position: sticky;
+  top: 18px;
+}
+
+.navitem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  background: transparent;
+  color: #54584f;
+  padding: 11px 13px;
+  font-size: 14px;
+  font-weight: 800;
+  text-align: left;
+}
+
+.navitem:hover {
+  background: #eef1ea;
+}
+
+.navitem.active {
+  border-color: var(--green);
+  background: var(--green);
+  color: #fff;
+  box-shadow: 0 6px 16px -10px rgba(47, 125, 79, .7);
+}
+
+.content-col {
+  min-width: 0;
+  display: grid;
+  gap: 18px;
 }
 
 /* ── 대시보드 레이아웃 ────────────────── */
 .dash {
   display: grid;
   gap: 18px;
-  padding: 22px 0 56px;
 }
 
 .sensor-panel {
@@ -811,6 +894,76 @@ h1 {
   padding-top: 16px;
 }
 
+/* ── 식물 일기 ────────────────────────── */
+.diary-block {
+  margin-top: 16px;
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+  display: grid;
+  gap: 12px;
+}
+
+.diary-head {
+  font-size: 13px;
+  font-weight: 800;
+  color: #45556a;
+}
+
+.diary-list {
+  display: grid;
+  gap: 8px;
+}
+
+.diary-entry {
+  border: 1px solid #d9e8f5;
+  border-radius: var(--radius-sm);
+  background: #f6fbff;
+  padding: 10px 12px;
+}
+
+.diary-entry-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.diary-tag {
+  border-radius: 999px;
+  background: #e0eefb;
+  color: #2c5a86;
+  padding: 2px 9px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.diary-entry p {
+  margin: 0;
+  color: #3d4a3f;
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.textarea {
+  height: auto;
+  min-height: 84px;
+  padding: 10px 12px;
+  line-height: 1.5;
+  resize: vertical;
+  font-family: inherit;
+}
+
+.diary-mark {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  font-size: 11px;
+  line-height: 1;
+}
+
 .check-list {
   display: flex;
   flex-wrap: wrap;
@@ -900,6 +1053,20 @@ h1 {
   .topbar-inner {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .sidenav {
+    position: static;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .navitem {
+    width: auto;
   }
 
   .stats {

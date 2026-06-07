@@ -4,9 +4,11 @@ import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import {
   Activity,
+  AlertTriangle,
   BarChart3,
   CalendarDays,
   CheckCircle,
+  Clock,
   ChevronLeft,
   ChevronRight,
   Droplets,
@@ -22,7 +24,7 @@ import {
   ThermometerSun,
   Trash2,
 } from "lucide-react";
-import type { Plant, SensorReading, WateringLog } from "@/lib/types";
+import type { DiaryEntry, Plant, SensorReading, WateringLog } from "@/lib/types";
 
 type PlantModel = Plant & {
   logs: WateringLog[];
@@ -277,6 +279,8 @@ export default function Page() {
   const [plants, setPlants] = useState<Plant[]>([]);
   const [logs, setLogs] = useState<WateringLog[]>([]);
   const [readings, setReadings] = useState<SensorReading[]>([]);
+  const [diaries, setDiaries] = useState<DiaryEntry[]>([]);
+  const [diaryForm, setDiaryForm] = useState({ plant_id: "", content: "" });
   const [query, setQuery] = useState("");
   const [location, setLocation] = useState<"전체" | "거실" | "베란다">("전체");
   const [sort, setSort] = useState<"priority" | "name">("priority");
@@ -294,14 +298,16 @@ export default function Page() {
     setLoading(true);
 
     try {
-      const [plantsData, logsData, sensorData] = await Promise.all([
+      const [plantsData, logsData, sensorData, diaryData] = await Promise.all([
         fetchJson<{ plants: Plant[] }>("/api/plants"),
         fetchJson<{ logs: WateringLog[] }>("/api/watering-logs"),
         fetchJson<{ readings: SensorReading[] }>("/api/sensor-readings"),
+        fetchJson<{ diaries: DiaryEntry[] }>("/api/diaries"),
       ]);
       setPlants(plantsData.plants);
       setLogs(logsData.logs);
       setReadings(sensorData.readings);
+      setDiaries(diaryData.diaries);
     } catch (err) {
       setError(err instanceof Error ? err.message : "데이터를 불러오지 못했습니다.");
     } finally {
@@ -347,8 +353,48 @@ export default function Page() {
     }, {});
   }, [logs]);
 
+  const diariesByDate = useMemo(() => {
+    return diaries.reduce<Record<string, DiaryEntry[]>>((acc, diary) => {
+      acc[diary.entry_date] = [...(acc[diary.entry_date] ?? []), diary];
+      return acc;
+    }, {});
+  }, [diaries]);
+
   const monthDays = useMemo(() => getMonthDays(calendarMonth), [calendarMonth]);
   const selectedDateLogs = logsByDate[selectedDate] ?? [];
+  const selectedDateDiaries = diariesByDate[selectedDate] ?? [];
+
+  function plantNameById(id: string | null) {
+    if (!id) return "전체";
+    return plants.find((plant) => plant.id === id)?.name ?? "삭제된 식물";
+  }
+
+  async function addDiary(event: FormEvent) {
+    event.preventDefault();
+    if (!diaryForm.content.trim()) {
+      window.alert("일기 내용을 입력해주세요.");
+      return;
+    }
+
+    const data = await fetchJson<{ diary: DiaryEntry }>("/api/diaries", {
+      method: "POST",
+      body: JSON.stringify({
+        plant_id: diaryForm.plant_id || null,
+        entry_date: selectedDate,
+        content: diaryForm.content.trim(),
+      }),
+    });
+    setDiaries((prev) => [data.diary, ...prev]);
+    setDiaryForm({ plant_id: "", content: "" });
+  }
+
+  async function deleteDiary(diary: DiaryEntry) {
+    const ok = window.confirm("이 일기를 삭제할까요?");
+    if (!ok) return;
+
+    await fetchJson<{ deleted: DiaryEntry }>(`/api/diaries/${diary.id}`, { method: "DELETE" });
+    setDiaries((prev) => prev.filter((item) => item.id !== diary.id));
+  }
 
   async function addPlant(event: FormEvent) {
     event.preventDefault();
@@ -573,58 +619,66 @@ export default function Page() {
         </div>
       </header>
 
-      <section className="wrap stats">
-        <div className="stat stat-danger">
-          <div className="stat-label">위험 · 이미 늦음</div>
-          <div className="stat-value">{overdue}건</div>
-          <p className="stat-detail">{listPlantNames(dangerPlants)}</p>
-        </div>
-        <div className="stat stat-today">
-          <div className="stat-label">오늘 물줘야 함</div>
-          <div className="stat-value">{dueToday}건</div>
-          <p className="stat-detail">{listPlantNames(todayPlants)}</p>
-        </div>
-        <div className="stat stat-soon">
-          <div className="stat-label">곧 물줘야 함</div>
-          <div className="stat-value">{soon}건</div>
-          <p className="stat-detail">{listPlantNames(soonPlants)}</p>
-        </div>
-        <div className="stat">
-          <div className="stat-label">오늘 완료</div>
-          <div className="stat-value">{wateredToday}건</div>
-          <p className="stat-detail">총 {model.length}종 관리 중</p>
-        </div>
-      </section>
+      <div className="wrap layout">
+        <aside className="sidenav">
+          <button className={`navitem ${activeTab === "dashboard" ? "active" : ""}`} onClick={() => setActiveTab("dashboard")}>
+            <Leaf size={17} /> 관리판
+          </button>
+          <button className={`navitem ${activeTab === "status" ? "active" : ""}`} onClick={() => setActiveTab("status")}>
+            <BarChart3 size={17} /> 전체 현황
+          </button>
+          <button className={`navitem ${activeTab === "analysis" ? "active" : ""}`} onClick={() => setActiveTab("analysis")}>
+            <Activity size={17} /> 식물 분석
+          </button>
+          <button className={`navitem ${activeTab === "logs" ? "active" : ""}`} onClick={() => setActiveTab("logs")}>
+            <Droplets size={17} /> 전체 로그
+          </button>
+          <button className={`navitem ${activeTab === "calendar" ? "active" : ""}`} onClick={() => setActiveTab("calendar")}>
+            <CalendarDays size={17} /> 급수 캘린더
+          </button>
+          <button className={`navitem ${activeTab === "add" ? "active" : ""}`} onClick={() => setActiveTab("add")}>
+            <Plus size={17} /> 새 식물
+          </button>
+        </aside>
 
-      <nav className="wrap tabs">
-        <button className={`tab ${activeTab === "dashboard" ? "active" : ""}`} onClick={() => setActiveTab("dashboard")}>
-          <Leaf size={16} />
-          관리판
-        </button>
-        <button className={`tab ${activeTab === "status" ? "active" : ""}`} onClick={() => setActiveTab("status")}>
-          <BarChart3 size={16} />
-          전체 현황
-        </button>
-        <button className={`tab ${activeTab === "analysis" ? "active" : ""}`} onClick={() => setActiveTab("analysis")}>
-          <Activity size={16} />
-          식물 분석
-        </button>
-        <button className={`tab ${activeTab === "logs" ? "active" : ""}`} onClick={() => setActiveTab("logs")}>
-          <Droplets size={16} />
-          전체 로그
-        </button>
-        <button className={`tab ${activeTab === "calendar" ? "active" : ""}`} onClick={() => setActiveTab("calendar")}>
-          <CalendarDays size={16} />
-          급수 캘린더
-        </button>
-        <button className={`tab ${activeTab === "add" ? "active" : ""}`} onClick={() => setActiveTab("add")}>
-          <Plus size={16} />
-          새 식물
-        </button>
-      </nav>
+        <div className="content-col">
+          <section className="stats">
+            <div className="stat stat-danger">
+              <div className="stat-ico"><AlertTriangle size={20} /></div>
+              <div className="stat-main">
+                <div className="stat-label">위험 · 이미 늦음</div>
+                <div className="stat-value">{overdue}<em>건</em></div>
+              </div>
+              <p className="stat-detail">{listPlantNames(dangerPlants)}</p>
+            </div>
+            <div className="stat stat-today">
+              <div className="stat-ico"><Droplets size={20} /></div>
+              <div className="stat-main">
+                <div className="stat-label">오늘 물줘야 함</div>
+                <div className="stat-value">{dueToday}<em>건</em></div>
+              </div>
+              <p className="stat-detail">{listPlantNames(todayPlants)}</p>
+            </div>
+            <div className="stat stat-soon">
+              <div className="stat-ico"><Clock size={20} /></div>
+              <div className="stat-main">
+                <div className="stat-label">곧 물줘야 함</div>
+                <div className="stat-value">{soon}<em>건</em></div>
+              </div>
+              <p className="stat-detail">{listPlantNames(soonPlants)}</p>
+            </div>
+            <div className="stat">
+              <div className="stat-ico"><CheckCircle size={20} /></div>
+              <div className="stat-main">
+                <div className="stat-label">오늘 완료</div>
+                <div className="stat-value">{wateredToday}<em>건</em></div>
+              </div>
+              <p className="stat-detail">총 {model.length}종 관리 중</p>
+            </div>
+          </section>
 
       {activeTab === "dashboard" && (
-        <section className="wrap dash">
+        <section className="dash">
           {error && <div className="error">{error}</div>}
 
           <section className="panel sensor-panel">
@@ -709,6 +763,7 @@ export default function Page() {
               {filtered.map((plant) => {
                 const status = statusFor(plant.dday);
                 const wateredTodayThis = plant.logs.some((log) => log.watered_at.slice(0, 10) === today);
+                const daysSince = plant.lastWatered ? dateDiff(today, plant.lastWatered) : null;
                 return (
                   <article className="pcard" key={plant.id}>
                     <div className="pcard-top">
@@ -725,8 +780,8 @@ export default function Page() {
 
                     <div className="pcard-metrics">
                       <div className="pmetric">
-                        <span className="meta">최근 급수</span>
-                        <strong>{plant.lastWatered ?? "없음"}</strong>
+                        <span className="meta">급수 경과</span>
+                        <strong>{daysSince === null ? "기록 없음" : daysSince === 0 ? "오늘" : `${daysSince}일 전`}</strong>
                       </div>
                       <div className="pmetric">
                         <span className="meta">다음 예정</span>
@@ -738,6 +793,9 @@ export default function Page() {
                       </div>
                     </div>
 
+                    <div className="pcard-meta">
+                      <span><CalendarDays size={13} /> 최근 급수 {plant.lastWatered ?? "없음"}</span>
+                    </div>
                     <div className="pcard-meta">
                       <span><Droplets size={13} /> {plant.water_level}</span>
                       <span><Sun size={13} /> {plant.sunlight || "정보 없음"}</span>
@@ -822,7 +880,7 @@ export default function Page() {
       )}
 
       {activeTab === "status" && (
-        <section className="wrap tab-page">
+        <section className="tab-page">
           <div className="panel table-panel">
             <div className="panel-title">
               <h2>
@@ -847,9 +905,6 @@ export default function Page() {
                     <th>다음예정일</th>
                     <th>D-day</th>
                     <th>상태</th>
-                    <th>토양센서</th>
-                    <th>온도</th>
-                    <th>습도</th>
                     <th>메모</th>
                     <th>기록수</th>
                   </tr>
@@ -857,7 +912,6 @@ export default function Page() {
                 <tbody>
                   {model.map((plant) => {
                     const status = statusFor(plant.dday);
-                    const locationReading = readings.find((reading) => reading.location === plant.location);
                     return (
                       <tr key={plant.id}>
                         <td><span className={`dot ${status.className}`} /></td>
@@ -873,9 +927,6 @@ export default function Page() {
                         <td>{plant.nextDue ?? "-"}</td>
                         <td>{plant.dday ?? "-"}</td>
                         <td>{status.label}</td>
-                        <td>{plant.soil_sensor_enabled ? plant.soil_sensor_device_id : "-"}</td>
-                        <td>{locationReading ? `${locationReading.temperature_c}°C` : "-"}</td>
-                        <td>{locationReading ? `${locationReading.humidity_pct}%` : "-"}</td>
                         <td>{plant.care_note || plant.memo || "-"}</td>
                         <td>{plant.logs.length}</td>
                       </tr>
@@ -889,7 +940,7 @@ export default function Page() {
       )}
 
       {activeTab === "analysis" && (
-        <section className="wrap tab-page analysis-layout">
+        <section className="tab-page analysis-layout">
           <div className="panel">
             <div className="panel-title">
               <h2>
@@ -942,7 +993,7 @@ export default function Page() {
       )}
 
       {activeTab === "logs" && (
-        <section className="wrap tab-page">
+        <section className="tab-page">
           <div className="panel">
             <div className="panel-title">
               <h2>
@@ -968,7 +1019,7 @@ export default function Page() {
       )}
 
       {activeTab === "calendar" && (
-        <section className="wrap tab-page">
+        <section className="tab-page">
           <div className="calendar-layout">
             <div className="panel calendar-panel">
               <div className="panel-title">
@@ -992,6 +1043,7 @@ export default function Page() {
                 ))}
                 {monthDays.map((day) => {
                   const count = logsByDate[day.date]?.length ?? 0;
+                  const diaryCount = diariesByDate[day.date]?.length ?? 0;
                   return (
                     <button
                       className={`day-cell ${day.inMonth ? "" : "muted"} ${selectedDate === day.date ? "selected" : ""} ${day.date === today ? "today" : ""}`}
@@ -999,6 +1051,7 @@ export default function Page() {
                       onClick={() => setSelectedDate(day.date)}
                     >
                       <span className="day-num">{Number(day.date.slice(-2))}</span>
+                      {diaryCount > 0 && <span className="diary-mark">📝</span>}
                       {count > 0 && <strong>💧 {count}</strong>}
                     </button>
                   );
@@ -1050,13 +1103,53 @@ export default function Page() {
                   선택 식물 추가
                 </button>
               </form>
+
+              <div className="diary-block">
+                <div className="diary-head">📝 이 날의 일기</div>
+                <div className="diary-list">
+                  {selectedDateDiaries.length ? (
+                    selectedDateDiaries.map((diary) => (
+                      <div className="diary-entry" key={diary.id}>
+                        <div className="diary-entry-top">
+                          <span className="diary-tag">{plantNameById(diary.plant_id)}</span>
+                          <button className="icon-btn danger sm" onClick={() => deleteDiary(diary)} title="일기 삭제">
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                        <p>{diary.content}</p>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="empty compact-empty">아직 일기가 없습니다.</div>
+                  )}
+                </div>
+
+                <form className="form-grid" onSubmit={addDiary}>
+                  <select className="select" value={diaryForm.plant_id} onChange={(event) => setDiaryForm({ ...diaryForm, plant_id: event.target.value })}>
+                    <option value="">전체 (식물 지정 안 함)</option>
+                    {plants.map((plant) => (
+                      <option key={plant.id} value={plant.id}>{plant.name}</option>
+                    ))}
+                  </select>
+                  <textarea
+                    className="input textarea"
+                    placeholder="오늘의 식물 일기를 적어보세요 (물 안 준 날도 OK)"
+                    value={diaryForm.content}
+                    onChange={(event) => setDiaryForm({ ...diaryForm, content: event.target.value })}
+                  />
+                  <button className="btn primary" type="submit">
+                    <Plus size={16} />
+                    일기 저장
+                  </button>
+                </form>
+              </div>
             </aside>
           </div>
         </section>
       )}
 
       {activeTab === "add" && (
-        <section className="wrap tab-page">
+        <section className="tab-page">
           <div className="panel add-panel">
             <div className="panel-title">
               <h2>
@@ -1114,6 +1207,8 @@ export default function Page() {
           </div>
         </section>
       )}
+        </div>
+      </div>
     </main>
   );
 }

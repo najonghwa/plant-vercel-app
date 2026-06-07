@@ -55,6 +55,14 @@ export type PumpCommand = {
   completed_at: string | null;
 };
 
+export type DiaryEntry = {
+  id: string;
+  plant_id: string | null;
+  entry_date: string;
+  content: string;
+  created_at?: string;
+};
+
 export type PlantPhoto = {
   id: string;
   plant_id: string;

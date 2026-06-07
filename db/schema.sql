@@ -78,6 +78,17 @@ create table if not exists pump_commands (
   completed_at timestamptz
 );
 
+create table if not exists plant_diaries (
+  id uuid primary key default gen_random_uuid(),
+  plant_id uuid references plants(id) on delete cascade,
+  entry_date date not null,
+  content text not null default '',
+  created_at timestamptz not null default now()
+);
+
+create index if not exists plant_diaries_date_idx
+  on plant_diaries (entry_date desc, created_at desc);
+
 create table if not exists plant_photos (
   id uuid primary key default gen_random_uuid(),
   plant_id uuid not null references plants(id) on delete cascade,
