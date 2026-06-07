@@ -8,10 +8,11 @@ import {
   BarChart3,
   CalendarDays,
   CheckCircle,
-  Clock,
   ChevronLeft,
   ChevronRight,
+  Clock,
   Droplets,
+  Gauge,
   Home,
   Leaf,
   Plus,
@@ -20,11 +21,13 @@ import {
   Search,
   Settings,
   Sprout,
+  StickyNote,
   Sun,
   ThermometerSun,
   Trash2,
+  X,
 } from "lucide-react";
-import type { DiaryEntry, Plant, SensorReading, WateringLog } from "@/lib/types";
+import type { DayMemo, Plant, SensorReading, WateringLog } from "@/lib/types";
 
 type PlantModel = Plant & {
   logs: WateringLog[];
@@ -40,17 +43,7 @@ type PlantModel = Plant & {
 
 const blankPlant = {
   name: "",
-  category: "관엽",
   location: "거실",
-  water_level: "보통",
-  sunlight: "밝은 간접광",
-  memo: "",
-  automation_enabled: false,
-  pump_device_id: "pump-living-01",
-  moisture_min_pct: 30,
-  watering_seconds: 5,
-  cooldown_hours: 12,
-  max_runs_per_day: 2,
 };
 
 function formatLocalDate(date: Date) {
@@ -235,6 +228,14 @@ function listPlantNames(plants: PlantModel[]) {
   return plants.map((plant) => plant.name).join(", ");
 }
 
+function wateringGaps(logs: WateringLog[]) {
+  const dates = logs.map((log) => log.watered_at.slice(0, 10));
+  return dates
+    .slice(1)
+    .map((date, index) => ({ date, gap: dateDiff(date, dates[index]) }))
+    .filter((item) => item.gap > 0);
+}
+
 function getMonthDays(month: string) {
   const [year, monthNumber] = month.split("-").map(Number);
   const first = new Date(year, monthNumber - 1, 1);
@@ -279,15 +280,17 @@ export default function Page() {
   const [plants, setPlants] = useState<Plant[]>([]);
   const [logs, setLogs] = useState<WateringLog[]>([]);
   const [readings, setReadings] = useState<SensorReading[]>([]);
-  const [diaries, setDiaries] = useState<DiaryEntry[]>([]);
-  const [diaryForm, setDiaryForm] = useState({ plant_id: "", content: "" });
+  const [memos, setMemos] = useState<DayMemo[]>([]);
   const [query, setQuery] = useState("");
   const [location, setLocation] = useState<"전체" | "거실" | "베란다">("전체");
   const [sort, setSort] = useState<"priority" | "name">("priority");
-  const [activeTab, setActiveTab] = useState<"dashboard" | "status" | "analysis" | "logs" | "calendar" | "add">("dashboard");
+  const [activeTab, setActiveTab] = useState<
+    "dashboard" | "status" | "analysis" | "calendar" | "memos" | "soil" | "add"
+  >("dashboard");
   const [selectedPlantId, setSelectedPlantId] = useState("");
+  const [settingsPlantId, setSettingsPlantId] = useState<string | null>(null);
   const [newPlant, setNewPlant] = useState(blankPlant);
-  const [bulkLog, setBulkLog] = useState({ plant_names: [] as string[], watered_at: today, memo: "" });
+  const [bulkLog, setBulkLog] = useState({ plant_names: [] as string[], memo: "" });
   const [selectedDate, setSelectedDate] = useState(today);
   const [calendarMonth, setCalendarMonth] = useState(today.slice(0, 7));
   const [loading, setLoading] = useState(true);
@@ -298,16 +301,16 @@ export default function Page() {
     setLoading(true);
 
     try {
-      const [plantsData, logsData, sensorData, diaryData] = await Promise.all([
+      const [plantsData, logsData, sensorData, memoData] = await Promise.all([
         fetchJson<{ plants: Plant[] }>("/api/plants"),
         fetchJson<{ logs: WateringLog[] }>("/api/watering-logs"),
         fetchJson<{ readings: SensorReading[] }>("/api/sensor-readings"),
-        fetchJson<{ diaries: DiaryEntry[] }>("/api/diaries"),
+        fetchJson<{ memos: DayMemo[] }>("/api/day-memos"),
       ]);
       setPlants(plantsData.plants);
       setLogs(logsData.logs);
       setReadings(sensorData.readings);
-      setDiaries(diaryData.diaries);
+      setMemos(memoData.memos);
     } catch (err) {
       setError(err instanceof Error ? err.message : "데이터를 불러오지 못했습니다.");
     } finally {
@@ -321,7 +324,9 @@ export default function Page() {
 
   const model = useMemo(() => buildPlantModel(plants, logs, readings, today), [plants, logs, readings, today]);
   const selectedPlant = model.find((plant) => plant.id === selectedPlantId) ?? model[0] ?? null;
+  const settingsPlant = model.find((plant) => plant.id === settingsPlantId) ?? null;
   const availableSensorDevices = useMemo(() => Array.from(new Set(readings.map((reading) => reading.device_id))), [readings]);
+  const soilPlants = useMemo(() => model.filter((plant) => plant.soil_sensor_enabled && plant.soil_sensor_device_id), [model]);
   const filtered = useMemo(() => {
     return model
       .filter((plant) => location === "전체" || plant.location === location)
@@ -329,7 +334,7 @@ export default function Page() {
         const keyword = query.trim().toLowerCase();
         if (!keyword) return true;
         return [plant.name, plant.category, plant.memo].some((value) =>
-          value.toLowerCase().includes(keyword),
+          (value ?? "").toLowerCase().includes(keyword),
         );
       })
       .sort((a, b) => {
@@ -345,6 +350,7 @@ export default function Page() {
   const dangerPlants = model.filter((plant) => plant.dday !== null && plant.dday < 0);
   const todayPlants = model.filter((plant) => plant.dday === 0);
   const soonPlants = model.filter((plant) => plant.dday !== null && plant.dday > 0 && plant.dday <= 2);
+
   const logsByDate = useMemo(() => {
     return logs.reduce<Record<string, WateringLog[]>>((acc, log) => {
       const date = log.watered_at.slice(0, 10);
@@ -353,54 +359,22 @@ export default function Page() {
     }, {});
   }, [logs]);
 
-  const diariesByDate = useMemo(() => {
-    return diaries.reduce<Record<string, DiaryEntry[]>>((acc, diary) => {
-      acc[diary.entry_date] = [...(acc[diary.entry_date] ?? []), diary];
+  const memosByDate = useMemo(() => {
+    return memos.reduce<Record<string, DayMemo[]>>((acc, memo) => {
+      acc[memo.entry_date] = [...(acc[memo.entry_date] ?? []), memo];
       return acc;
     }, {});
-  }, [diaries]);
+  }, [memos]);
 
   const monthDays = useMemo(() => getMonthDays(calendarMonth), [calendarMonth]);
   const selectedDateLogs = logsByDate[selectedDate] ?? [];
-  const selectedDateDiaries = diariesByDate[selectedDate] ?? [];
-
-  function plantNameById(id: string | null) {
-    if (!id) return "전체";
-    return plants.find((plant) => plant.id === id)?.name ?? "삭제된 식물";
-  }
-
-  async function addDiary(event: FormEvent) {
-    event.preventDefault();
-    if (!diaryForm.content.trim()) {
-      window.alert("일기 내용을 입력해주세요.");
-      return;
-    }
-
-    const data = await fetchJson<{ diary: DiaryEntry }>("/api/diaries", {
-      method: "POST",
-      body: JSON.stringify({
-        plant_id: diaryForm.plant_id || null,
-        entry_date: selectedDate,
-        content: diaryForm.content.trim(),
-      }),
-    });
-    setDiaries((prev) => [data.diary, ...prev]);
-    setDiaryForm({ plant_id: "", content: "" });
-  }
-
-  async function deleteDiary(diary: DiaryEntry) {
-    const ok = window.confirm("이 일기를 삭제할까요?");
-    if (!ok) return;
-
-    await fetchJson<{ deleted: DiaryEntry }>(`/api/diaries/${diary.id}`, { method: "DELETE" });
-    setDiaries((prev) => prev.filter((item) => item.id !== diary.id));
-  }
+  const selectedDateMemos = memosByDate[selectedDate] ?? [];
 
   async function addPlant(event: FormEvent) {
     event.preventDefault();
     const data = await fetchJson<{ plant: Plant }>("/api/plants", {
       method: "POST",
-      body: JSON.stringify(newPlant),
+      body: JSON.stringify({ name: newPlant.name, location: newPlant.location }),
     });
     setPlants((prev) => [...prev, data.plant]);
     setNewPlant(blankPlant);
@@ -408,30 +382,43 @@ export default function Page() {
   }
 
   async function deletePlant(plant: Plant) {
-    const ok = window.confirm(`'${plant.name}' 식물을 삭제할까요?\n관련 자동급수 설정도 함께 삭제됩니다.`);
+    const ok = window.confirm(`'${plant.name}' 식물을 삭제할까요?\n관련 설정도 함께 삭제됩니다.`);
     if (!ok) return;
 
     await fetchJson<{ deleted: Plant }>(`/api/plants/${plant.id}`, { method: "DELETE" });
     setPlants((prev) => prev.filter((item) => item.id !== plant.id));
+    if (settingsPlantId === plant.id) setSettingsPlantId(null);
   }
 
-  async function addWateringToSelectedDate(event: FormEvent) {
+  async function saveDayRecord(event: FormEvent) {
     event.preventDefault();
-    if (!bulkLog.plant_names.length) {
-      window.alert("추가할 식물을 선택해주세요.");
+    const hasPlants = bulkLog.plant_names.length > 0;
+    const memo = bulkLog.memo.trim();
+
+    if (!hasPlants && !memo) {
+      window.alert("식물을 선택하거나, 메모를 입력해주세요.");
       return;
     }
 
-    const data = await fetchJson<{ logs: WateringLog[] }>("/api/watering-logs", {
-      method: "POST",
-      body: JSON.stringify({
-        plant_names: bulkLog.plant_names,
-        watered_at: selectedDate,
-        memo: bulkLog.memo,
-      }),
-    });
-    setLogs((prev) => [...data.logs, ...prev]);
-    setBulkLog({ plant_names: [], watered_at: today, memo: "" });
+    if (hasPlants) {
+      const data = await fetchJson<{ logs: WateringLog[] }>("/api/watering-logs", {
+        method: "POST",
+        body: JSON.stringify({
+          plant_names: bulkLog.plant_names,
+          watered_at: selectedDate,
+          memo,
+        }),
+      });
+      setLogs((prev) => [...data.logs, ...prev]);
+    } else {
+      const data = await fetchJson<{ memo: DayMemo }>("/api/day-memos", {
+        method: "POST",
+        body: JSON.stringify({ entry_date: selectedDate, content: memo }),
+      });
+      setMemos((prev) => [data.memo, ...prev]);
+    }
+
+    setBulkLog({ plant_names: [], memo: "" });
   }
 
   function toggleBulkPlant(plantName: string) {
@@ -444,18 +431,9 @@ export default function Page() {
   }
 
   async function quickWater(plantName: string) {
-    const alreadyDone = logs.some(
-      (log) => log.plant_name === plantName && log.watered_at.slice(0, 10) === today,
-    );
-
-    if (alreadyDone) {
-      window.alert(`${plantName}은(는) 이미 오늘 물 준 기록이 있습니다.`);
-      return;
-    }
-
     const data = await fetchJson<{ log: WateringLog }>("/api/watering-logs", {
       method: "POST",
-      body: JSON.stringify({ plant_name: plantName, watered_at: today, memo: "대시보드 퀵 물주기" }),
+      body: JSON.stringify({ plant_name: plantName, watered_at: today, memo: "대시보드 물주기" }),
     });
     setLogs((prev) => [data.log, ...prev]);
   }
@@ -464,23 +442,25 @@ export default function Page() {
     const ok = window.confirm(`${log.watered_at.slice(0, 10)} ${log.plant_name} 급수 기록을 취소할까요?`);
     if (!ok) return;
 
-    await fetchJson<{ deleted: WateringLog }>(`/api/watering-logs/${log.id}`, {
-      method: "DELETE",
-    });
+    await fetchJson<{ deleted: WateringLog }>(`/api/watering-logs/${log.id}`, { method: "DELETE" });
     setLogs((prev) => prev.filter((item) => item.id !== log.id));
   }
 
   async function cancelTodayWatering(plant: PlantModel) {
-    const todayLog = [...plant.logs]
-      .reverse()
-      .find((log) => log.watered_at.slice(0, 10) === today);
-
+    const todayLog = [...plant.logs].reverse().find((log) => log.watered_at.slice(0, 10) === today);
     if (!todayLog) {
       window.alert("오늘 취소할 급수 기록이 없습니다.");
       return;
     }
-
     await deleteWateringLog(todayLog);
+  }
+
+  async function deleteDayMemo(memo: DayMemo) {
+    const ok = window.confirm("이 메모를 삭제할까요?");
+    if (!ok) return;
+
+    await fetchJson<{ deleted: DayMemo }>(`/api/day-memos/${memo.id}`, { method: "DELETE" });
+    setMemos((prev) => prev.filter((item) => item.id !== memo.id));
   }
 
   async function toggleAutomation(plant: Plant) {
@@ -515,13 +495,7 @@ export default function Page() {
 
     setPlants((prev) =>
       prev.map((item) =>
-        item.id === plant.id
-          ? {
-              ...item,
-              ...config.config,
-              automation_enabled: enabled,
-            }
-          : item,
+        item.id === plant.id ? { ...item, ...config.config, automation_enabled: enabled } : item,
       ),
     );
   }
@@ -544,12 +518,7 @@ export default function Page() {
 
   async function applyTestAutomation(plant: Plant, target: HTMLElement) {
     const panel = target.closest(".automation-grid");
-    const values = {
-      moisture_min_pct: 30,
-      watering_seconds: 5,
-      cooldown_hours: 0,
-      max_runs_per_day: 5,
-    };
+    const values = { moisture_min_pct: 30, watering_seconds: 5, cooldown_hours: 0, max_runs_per_day: 5 };
 
     Object.entries(values).forEach(([name, value]) => {
       const input = panel?.querySelector<HTMLInputElement>(`input[name="${name}"]`);
@@ -578,10 +547,7 @@ export default function Page() {
     const enabled = Boolean(sensorDeviceId);
     const data = await fetchJson<{ config: Partial<Plant> }>(`/api/plants/${plant.id}/sensor`, {
       method: "PUT",
-      body: JSON.stringify({
-        soil_sensor_enabled: enabled,
-        soil_sensor_device_id: sensorDeviceId,
-      }),
+      body: JSON.stringify({ soil_sensor_enabled: enabled, soil_sensor_device_id: sensorDeviceId }),
     });
 
     setPlants((prev) =>
@@ -598,6 +564,9 @@ export default function Page() {
       ),
     );
   }
+
+  const analysisGaps = selectedPlant ? wateringGaps(selectedPlant.logs) : [];
+  const maxGap = Math.max(1, ...analysisGaps.map((item) => item.gap));
 
   return (
     <main className="shell">
@@ -630,11 +599,14 @@ export default function Page() {
           <button className={`navitem ${activeTab === "analysis" ? "active" : ""}`} onClick={() => setActiveTab("analysis")}>
             <Activity size={17} /> 식물 분석
           </button>
-          <button className={`navitem ${activeTab === "logs" ? "active" : ""}`} onClick={() => setActiveTab("logs")}>
-            <Droplets size={17} /> 전체 로그
-          </button>
           <button className={`navitem ${activeTab === "calendar" ? "active" : ""}`} onClick={() => setActiveTab("calendar")}>
             <CalendarDays size={17} /> 급수 캘린더
+          </button>
+          <button className={`navitem ${activeTab === "memos" ? "active" : ""}`} onClick={() => setActiveTab("memos")}>
+            <StickyNote size={17} /> 메모
+          </button>
+          <button className={`navitem ${activeTab === "soil" ? "active" : ""}`} onClick={() => setActiveTab("soil")}>
+            <Gauge size={17} /> 토양수분
           </button>
           <button className={`navitem ${activeTab === "add" ? "active" : ""}`} onClick={() => setActiveTab("add")}>
             <Plus size={17} /> 새 식물
@@ -677,538 +649,536 @@ export default function Page() {
             </div>
           </section>
 
-      {activeTab === "dashboard" && (
-        <section className="dash">
-          {error && <div className="error">{error}</div>}
+          {activeTab === "dashboard" && (
+            <section className="dash">
+              {error && <div className="error">{error}</div>}
 
-          <section className="panel sensor-panel">
-            <div className="panel-title">
-              <h2>
-                <ThermometerSun size={18} /> 실시간 센서
-              </h2>
-              <span className="meta">ESP32 수신값</span>
-            </div>
-            <div className="sensor-strip">
-              {["베란다", "거실"].map((loc) => {
-                const reading = readings.find((item) => item.location === loc);
-                return (
-                  <div className="sensor-card" key={loc}>
-                    <div className="sensor-head">
-                      <span>
-                        <Home size={15} /> {loc}
-                      </span>
-                      <span className="meta">{reading ? new Date(reading.recorded_at).toLocaleString("ko-KR") : "대기 중"}</span>
-                    </div>
-                    <div className="sensor-grid">
-                      <div className="sensor-cell">
-                        <div className="sensor-label">온도</div>
-                        <div className="sensor-value">{reading ? `${reading.temperature_c}°C` : "-"}</div>
-                      </div>
-                      <div className="sensor-cell">
-                        <div className="sensor-label">습도</div>
-                        <div className="sensor-value">{reading ? `${reading.humidity_pct}%` : "-"}</div>
-                      </div>
-                      <div className="sensor-cell">
-                        <div className="sensor-label">조도</div>
-                        <div className="sensor-value">{reading ? `${reading.light_lux}lx` : "-"}</div>
-                      </div>
-                      <div className="sensor-cell">
-                        <div className="sensor-label">토양수분</div>
-                        <div className="sensor-value">{reading ? `${reading.soil_moisture_pct}%` : "-"}</div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-
-          <div className="filters">
-            <label>
-              <span className="meta">검색</span>
-              <div style={{ position: "relative" }}>
-                <Search size={16} style={{ left: 12, position: "absolute", top: 13, color: "#a8a29e" }} />
-                <input
-                  className="input"
-                  style={{ paddingLeft: 36 }}
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="식물명, 분류, 메모 검색"
-                />
-              </div>
-            </label>
-            <label>
-              <span className="meta">구역</span>
-              <select className="select" value={location} onChange={(event) => setLocation(event.target.value as typeof location)}>
-                <option value="전체">전체</option>
-                <option value="거실">거실</option>
-                <option value="베란다">베란다</option>
-              </select>
-            </label>
-            <label>
-              <span className="meta">정렬</span>
-              <select className="select" value={sort} onChange={(event) => setSort(event.target.value as typeof sort)}>
-                <option value="priority">우선순위</option>
-                <option value="name">이름순</option>
-              </select>
-            </label>
-          </div>
-
-          {loading ? (
-            <div className="empty">DB에서 데이터를 불러오는 중입니다.</div>
-          ) : filtered.length === 0 ? (
-            <div className="empty">표시할 식물이 없습니다. ‘새 식물’ 탭에서 추가해보세요.</div>
-          ) : (
-            <div className="plant-grid">
-              {filtered.map((plant) => {
-                const status = statusFor(plant.dday);
-                const wateredTodayThis = plant.logs.some((log) => log.watered_at.slice(0, 10) === today);
-                const daysSince = plant.lastWatered ? dateDiff(today, plant.lastWatered) : null;
-                return (
-                  <article className="pcard" key={plant.id}>
-                    <div className="pcard-top">
-                      <div className="pcard-title">
-                        <h3>{plant.name}</h3>
-                        <div className="tags">
-                          <span className="tag">{plant.category || "분류 없음"}</span>
-                          <span className="tag">{plant.location}</span>
-                          {plant.automation_enabled && <span className="tag auto">자동급수</span>}
+              <section className="panel sensor-panel">
+                <div className="panel-title">
+                  <h2><ThermometerSun size={18} /> 실시간 센서</h2>
+                  <span className="meta">ESP32 수신값</span>
+                </div>
+                <div className="sensor-strip">
+                  {["베란다", "거실"].map((loc) => {
+                    const reading = readings.find((item) => item.location === loc);
+                    return (
+                      <div className="sensor-card" key={loc}>
+                        <div className="sensor-head">
+                          <span><Home size={15} /> {loc}</span>
+                          <span className="meta">{reading ? new Date(reading.recorded_at).toLocaleString("ko-KR") : "대기 중"}</span>
+                        </div>
+                        <div className="sensor-grid three">
+                          <div className="sensor-cell">
+                            <div className="sensor-label">온도</div>
+                            <div className="sensor-value">{reading ? `${reading.temperature_c}°C` : "-"}</div>
+                          </div>
+                          <div className="sensor-cell">
+                            <div className="sensor-label">습도</div>
+                            <div className="sensor-value">{reading ? `${reading.humidity_pct}%` : "-"}</div>
+                          </div>
+                          <div className="sensor-cell">
+                            <div className="sensor-label">조도</div>
+                            <div className="sensor-value">{reading ? `${reading.light_lux}lx` : "-"}</div>
+                          </div>
                         </div>
                       </div>
-                      <span className={`status ${status.className}`}>{status.label}</span>
-                    </div>
-
-                    <div className="pcard-metrics">
-                      <div className="pmetric">
-                        <span className="meta">급수 경과</span>
-                        <strong>{daysSince === null ? "기록 없음" : daysSince === 0 ? "오늘" : `${daysSince}일 전`}</strong>
-                      </div>
-                      <div className="pmetric">
-                        <span className="meta">다음 예정</span>
-                        <strong>{plant.nextDue ?? "-"}</strong>
-                      </div>
-                      <div className="pmetric">
-                        <span className="meta">분석 주기</span>
-                        <strong>{plant.interval}일</strong>
-                      </div>
-                    </div>
-
-                    <div className="pcard-meta">
-                      <span><CalendarDays size={13} /> 최근 급수 {plant.lastWatered ?? "없음"}</span>
-                    </div>
-                    <div className="pcard-meta">
-                      <span><Droplets size={13} /> {plant.water_level}</span>
-                      <span><Sun size={13} /> {plant.sunlight || "정보 없음"}</span>
-                    </div>
-
-                    <div className="pcard-actions">
-                      <button className="btn sm primary" onClick={() => quickWater(plant.name)}>
-                        <Droplets size={14} /> 물주기
-                      </button>
-                      {wateredTodayThis && (
-                        <button className="btn sm" onClick={() => cancelTodayWatering(plant)}>
-                          오늘 취소
-                        </button>
-                      )}
-                      <button className="btn sm" onClick={() => toggleAutomation(plant)}>
-                        <Power size={14} /> {plant.automation_enabled ? "자동 끄기" : "자동 켜기"}
-                      </button>
-                      <button className="icon-btn danger sm" title="식물 삭제" onClick={() => deletePlant(plant)}>
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-
-                    <details className="pcard-settings">
-                      <summary>
-                        <Settings size={14} /> 설정 / 토양센서
-                      </summary>
-                      <div className="settings-body">
-                        <label className="sensor-link-row">
-                          <span>토양센서</span>
-                          <select
-                            value={plant.soil_sensor_enabled ? plant.soil_sensor_device_id ?? "" : ""}
-                            onChange={(event) => connectSoilSensor(plant, event.target.value)}
-                          >
-                            <option value="">미지정</option>
-                            {availableSensorDevices.map((deviceId) => (
-                              <option key={deviceId} value={deviceId}>{deviceId}</option>
-                            ))}
-                          </select>
-                        </label>
-
-                        {plant.automation_enabled ? (
-                          <>
-                            <div className="automation-grid">
-                              <label>
-                                <span>수분 기준 %</span>
-                                <input name="moisture_min_pct" type="number" min="1" max="100" defaultValue={plant.moisture_min_pct ?? 30} />
-                              </label>
-                              <label>
-                                <span>급수 초</span>
-                                <input name="watering_seconds" type="number" min="1" max="20" defaultValue={plant.watering_seconds ?? 5} />
-                              </label>
-                              <label>
-                                <span>쿨다운 시간</span>
-                                <input name="cooldown_hours" type="number" min="0" max="168" defaultValue={plant.cooldown_hours ?? 12} />
-                              </label>
-                              <label>
-                                <span>하루 최대</span>
-                                <input name="max_runs_per_day" type="number" min="1" max="20" defaultValue={plant.max_runs_per_day ?? 2} />
-                              </label>
-                              <button type="button" className="btn sm" onClick={(event) => saveAutomationFromPanel(plant, event.currentTarget)}>
-                                설정 저장
-                              </button>
-                              <button type="button" className="btn sm" onClick={(event) => applyTestAutomation(plant, event.currentTarget)}>
-                                테스트값 적용
-                              </button>
-                            </div>
-                            <button type="button" className="btn sm primary" onClick={() => queuePumpTest(plant)}>
-                              펌프 테스트 5초
-                            </button>
-                          </>
-                        ) : (
-                          <p className="hint">‘자동 켜기’를 누르면 펌프/수분 기준을 설정할 수 있어요.</p>
-                        )}
-                      </div>
-                    </details>
-                  </article>
-                );
-              })}
-            </div>
-          )}
-        </section>
-      )}
-
-      {activeTab === "status" && (
-        <section className="tab-page">
-          <div className="panel table-panel">
-            <div className="panel-title">
-              <h2>
-                <BarChart3 size={18} /> 전체 식물 현황
-              </h2>
-              <span className="meta">분석 주기와 환경 추천 포함</span>
-            </div>
-            <div className="table-scroll">
-              <table className="plant-table">
-                <thead>
-                  <tr>
-                    <th>알림</th>
-                    <th>식물</th>
-                    <th>분류</th>
-                    <th>위치</th>
-                    <th>물 선호도</th>
-                    <th>햇빛 선호도</th>
-                    <th>마지막 물준 날</th>
-                    <th>지난일수</th>
-                    <th>평균주기</th>
-                    <th>분석주기</th>
-                    <th>다음예정일</th>
-                    <th>D-day</th>
-                    <th>상태</th>
-                    <th>메모</th>
-                    <th>기록수</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {model.map((plant) => {
-                    const status = statusFor(plant.dday);
-                    return (
-                      <tr key={plant.id}>
-                        <td><span className={`dot ${status.className}`} /></td>
-                        <td>{plant.name}</td>
-                        <td>{plant.category}</td>
-                        <td>{plant.location}</td>
-                        <td>{plant.water_level}</td>
-                        <td>{plant.sunlight}</td>
-                        <td>{plant.lastWatered ?? "-"}</td>
-                        <td>{plant.lastWatered ? dateDiff(today, plant.lastWatered) : "-"}</td>
-                        <td>{plant.learnedInterval ?? "-"}</td>
-                        <td>{plant.interval}</td>
-                        <td>{plant.nextDue ?? "-"}</td>
-                        <td>{plant.dday ?? "-"}</td>
-                        <td>{status.label}</td>
-                        <td>{plant.care_note || plant.memo || "-"}</td>
-                        <td>{plant.logs.length}</td>
-                      </tr>
                     );
                   })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </section>
-      )}
+                </div>
+              </section>
 
-      {activeTab === "analysis" && (
-        <section className="tab-page analysis-layout">
-          <div className="panel">
-            <div className="panel-title">
-              <h2>
-                <Activity size={18} /> 식물별 기록/분석
-              </h2>
-            </div>
-            <select className="select" value={selectedPlant?.id ?? ""} onChange={(event) => setSelectedPlantId(event.target.value)}>
-              {model.map((plant) => (
-                <option key={plant.id} value={plant.id}>{plant.name}</option>
-              ))}
-            </select>
-            {selectedPlant && (
-              <div className="analysis-cards">
-                <div className="metric"><span className="meta">총 급수</span><strong>{selectedPlant.logs.length}회</strong></div>
-                <div className="metric"><span className="meta">최근 평균</span><strong>{selectedPlant.learnedInterval ?? "-"}일</strong></div>
-                <div className="metric"><span className="meta">분석 주기</span><strong>{selectedPlant.interval}일</strong></div>
-                <div className="metric"><span className="meta">다음 예정</span><strong>{selectedPlant.nextDue ?? "-"}</strong></div>
-              </div>
-            )}
-          </div>
-          {selectedPlant && (
-            <div className="panel">
-              <div className="panel-title">
-                <h2>{selectedPlant.name} 분석 근거</h2>
-                <span className="meta">{selectedPlant.difficulty || "난이도 미입력"}</span>
-              </div>
-              <div className="analysis-box standalone">
-                <ul>
-                  {selectedPlant.recommendationReasons.map((reason) => (
-                    <li key={reason}>{reason}</li>
-                  ))}
-                </ul>
-              </div>
-              <div className="calendar-items log-list">
-                {selectedPlant.logs.slice().reverse().map((log) => (
-                  <div className="calendar-item" key={log.id}>
-                    <div>
-                      <strong>{log.watered_at.slice(0, 10)}</strong>
-                      <span>{log.memo || log.source}</span>
-                    </div>
-                    <button className="icon-btn danger" onClick={() => deleteWateringLog(log)} title="기록 취소">
-                      <Trash2 size={15} />
-                    </button>
+              <div className="filters">
+                <label>
+                  <span className="meta">검색</span>
+                  <div style={{ position: "relative" }}>
+                    <Search size={16} style={{ left: 12, position: "absolute", top: 13, color: "#a8a29e" }} />
+                    <input className="input" style={{ paddingLeft: 36 }} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="식물명, 분류, 메모 검색" />
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </section>
-      )}
-
-      {activeTab === "logs" && (
-        <section className="tab-page">
-          <div className="panel">
-            <div className="panel-title">
-              <h2>
-                <Droplets size={18} /> 전체 급수 로그
-              </h2>
-              <span className="meta">{logs.length}건</span>
-            </div>
-            <div className="calendar-items log-list">
-              {logs.map((log) => (
-                <div className="calendar-item" key={log.id}>
-                  <div>
-                    <strong>{log.watered_at.slice(0, 10)} · {log.plant_name}</strong>
-                    <span>{log.memo || (log.source === "automation" ? "자동급수" : "수동 기록")}</span>
-                  </div>
-                  <button className="icon-btn danger" onClick={() => deleteWateringLog(log)} title="기록 취소">
-                    <Trash2 size={15} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-      )}
-
-      {activeTab === "calendar" && (
-        <section className="tab-page">
-          <div className="calendar-layout">
-            <div className="panel calendar-panel">
-              <div className="panel-title">
-                <h2>
-                  <CalendarDays size={18} /> 급수 캘린더
-                </h2>
-                <div className="month-controls">
-                  <button className="icon-btn" onClick={() => setCalendarMonth((prev) => moveMonth(prev, -1))}>
-                    <ChevronLeft size={16} />
-                  </button>
-                  <strong>{calendarMonth}</strong>
-                  <button className="icon-btn" onClick={() => setCalendarMonth((prev) => moveMonth(prev, 1))}>
-                    <ChevronRight size={16} />
-                  </button>
-                </div>
+                </label>
+                <label>
+                  <span className="meta">구역</span>
+                  <select className="select" value={location} onChange={(event) => setLocation(event.target.value as typeof location)}>
+                    <option value="전체">전체</option>
+                    <option value="거실">거실</option>
+                    <option value="베란다">베란다</option>
+                  </select>
+                </label>
+                <label>
+                  <span className="meta">정렬</span>
+                  <select className="select" value={sort} onChange={(event) => setSort(event.target.value as typeof sort)}>
+                    <option value="priority">우선순위</option>
+                    <option value="name">이름순</option>
+                  </select>
+                </label>
               </div>
 
-              <div className="month-grid">
-                {["일", "월", "화", "수", "목", "금", "토"].map((day) => (
-                  <div className="weekday" key={day}>{day}</div>
-                ))}
-                {monthDays.map((day) => {
-                  const count = logsByDate[day.date]?.length ?? 0;
-                  const diaryCount = diariesByDate[day.date]?.length ?? 0;
-                  return (
-                    <button
-                      className={`day-cell ${day.inMonth ? "" : "muted"} ${selectedDate === day.date ? "selected" : ""} ${day.date === today ? "today" : ""}`}
-                      key={day.date}
-                      onClick={() => setSelectedDate(day.date)}
-                    >
-                      <span className="day-num">{Number(day.date.slice(-2))}</span>
-                      {diaryCount > 0 && <span className="diary-mark">📝</span>}
-                      {count > 0 && <strong>💧 {count}</strong>}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+              {loading ? (
+                <div className="empty">DB에서 데이터를 불러오는 중입니다.</div>
+              ) : filtered.length === 0 ? (
+                <div className="empty">표시할 식물이 없습니다. ‘새 식물’ 메뉴에서 추가해보세요.</div>
+              ) : (
+                <div className="plant-grid">
+                  {filtered.map((plant) => {
+                    const status = statusFor(plant.dday);
+                    const wateredTodayThis = plant.logs.some((log) => log.watered_at.slice(0, 10) === today);
+                    const daysSince = plant.lastWatered ? dateDiff(today, plant.lastWatered) : null;
+                    return (
+                      <article className="pcard" key={plant.id}>
+                        <div className="pcard-top">
+                          <div className="pcard-title">
+                            <h3>{plant.name}</h3>
+                            <div className="tags">
+                              <span className="tag">{plant.category || "분류 없음"}</span>
+                              <span className="tag">{plant.location}</span>
+                              {plant.automation_enabled && <span className="tag auto">자동급수</span>}
+                            </div>
+                          </div>
+                          <span className={`status ${status.className}`}>{status.label}</span>
+                        </div>
 
-            <aside className="panel day-detail">
-              <div className="panel-title">
-                <h2>{selectedDate}</h2>
-                <span className="meta">{selectedDateLogs.length}건</span>
-              </div>
+                        <div className="pcard-metrics">
+                          <div className="pmetric">
+                            <span className="meta">급수 경과</span>
+                            <strong>{daysSince === null ? "기록 없음" : daysSince === 0 ? "오늘" : `${daysSince}일 전`}</strong>
+                          </div>
+                          <div className="pmetric">
+                            <span className="meta">다음 예정</span>
+                            <strong>{plant.nextDue ?? "-"}</strong>
+                          </div>
+                          <div className="pmetric">
+                            <span className="meta">분석 주기</span>
+                            <strong>{plant.interval}일</strong>
+                          </div>
+                        </div>
 
-              <div className="calendar-items">
-                {selectedDateLogs.length ? (
-                  selectedDateLogs.map((log) => (
-                    <div className="calendar-item" key={log.id}>
-                      <div>
-                        <strong>{log.plant_name}</strong>
-                        <span>{log.memo || (log.source === "automation" ? "자동급수" : "수동 기록")}</span>
-                      </div>
-                      <button className="icon-btn danger" onClick={() => deleteWateringLog(log)} title="기록 취소">
-                        <Trash2 size={15} />
-                      </button>
-                    </div>
-                  ))
-                ) : (
-                  <div className="empty compact-empty">이 날의 급수 기록이 없습니다.</div>
-                )}
-              </div>
+                        <div className="pcard-meta">
+                          <span><CalendarDays size={13} /> 최근 급수 {plant.lastWatered ?? "없음"}</span>
+                          <span><Sun size={13} /> {plant.sunlight || "정보 없음"}</span>
+                        </div>
 
-              <form className="form-grid day-add-form" onSubmit={addWateringToSelectedDate}>
-                <div className="meta">이 날짜에 식물 추가 기록</div>
-                <div className="check-list compact">
-                  {plants.map((plant) => (
-                    <label key={plant.id} className="check-chip">
-                      <input
-                        type="checkbox"
-                        checked={bulkLog.plant_names.includes(plant.name)}
-                        onChange={() => toggleBulkPlant(plant.name)}
-                      />
-                      <span>{plant.name}</span>
-                    </label>
-                  ))}
-                </div>
-                <input className="input" placeholder="메모" value={bulkLog.memo} onChange={(event) => setBulkLog({ ...bulkLog, memo: event.target.value })} />
-                <button className="btn primary" type="submit">
-                  <Plus size={16} />
-                  선택 식물 추가
-                </button>
-              </form>
-
-              <div className="diary-block">
-                <div className="diary-head">📝 이 날의 일기</div>
-                <div className="diary-list">
-                  {selectedDateDiaries.length ? (
-                    selectedDateDiaries.map((diary) => (
-                      <div className="diary-entry" key={diary.id}>
-                        <div className="diary-entry-top">
-                          <span className="diary-tag">{plantNameById(diary.plant_id)}</span>
-                          <button className="icon-btn danger sm" onClick={() => deleteDiary(diary)} title="일기 삭제">
+                        <div className="pcard-actions">
+                          {wateredTodayThis ? (
+                            <button className="btn sm" onClick={() => cancelTodayWatering(plant)}>
+                              <Droplets size={14} /> 물주기 취소
+                            </button>
+                          ) : (
+                            <button className="btn sm primary" onClick={() => quickWater(plant.name)}>
+                              <Droplets size={14} /> 물주기
+                            </button>
+                          )}
+                          <button className="btn sm" onClick={() => toggleAutomation(plant)}>
+                            <Power size={14} /> {plant.automation_enabled ? "자동 끄기" : "자동 켜기"}
+                          </button>
+                          <button className="icon-btn sm" title="설정" onClick={() => setSettingsPlantId(plant.id)}>
+                            <Settings size={14} />
+                          </button>
+                          <button className="icon-btn danger sm" title="식물 삭제" onClick={() => deletePlant(plant)}>
                             <Trash2 size={14} />
                           </button>
                         </div>
-                        <p>{diary.content}</p>
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          )}
+
+          {activeTab === "status" && (
+            <section className="tab-page">
+              <div className="panel table-panel">
+                <div className="panel-title">
+                  <h2><BarChart3 size={18} /> 전체 식물 현황</h2>
+                  <span className="meta">분석 주기 포함</span>
+                </div>
+                <div className="table-scroll">
+                  <table className="plant-table">
+                    <thead>
+                      <tr>
+                        <th>알림</th>
+                        <th>식물</th>
+                        <th>분류</th>
+                        <th>위치</th>
+                        <th>물 선호도</th>
+                        <th>햇빛 선호도</th>
+                        <th>마지막 물준 날</th>
+                        <th>지난일수</th>
+                        <th>평균주기</th>
+                        <th>분석주기</th>
+                        <th>다음예정일</th>
+                        <th>D-day</th>
+                        <th>상태</th>
+                        <th>메모</th>
+                        <th>기록수</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {model.map((plant) => {
+                        const status = statusFor(plant.dday);
+                        return (
+                          <tr key={plant.id}>
+                            <td><span className={`dot ${status.className}`} /></td>
+                            <td>{plant.name}</td>
+                            <td>{plant.category || "-"}</td>
+                            <td>{plant.location}</td>
+                            <td>{plant.water_level}</td>
+                            <td>{plant.sunlight || "-"}</td>
+                            <td>{plant.lastWatered ?? "-"}</td>
+                            <td>{plant.lastWatered ? dateDiff(today, plant.lastWatered) : "-"}</td>
+                            <td>{plant.learnedInterval ?? "-"}</td>
+                            <td>{plant.interval}</td>
+                            <td>{plant.nextDue ?? "-"}</td>
+                            <td>{plant.dday ?? "-"}</td>
+                            <td>{status.label}</td>
+                            <td>{plant.care_note || plant.memo || "-"}</td>
+                            <td>{plant.logs.length}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {activeTab === "analysis" && (
+            <section className="tab-page analysis-layout">
+              <div className="panel">
+                <div className="panel-title">
+                  <h2><Activity size={18} /> 식물 분석</h2>
+                  <span className="meta">{model.length}종</span>
+                </div>
+                <div className="plant-list">
+                  {model.map((plant) => {
+                    const status = statusFor(plant.dday);
+                    return (
+                      <button
+                        key={plant.id}
+                        className={`plant-list-item ${selectedPlant?.id === plant.id ? "active" : ""}`}
+                        onClick={() => setSelectedPlantId(plant.id)}
+                      >
+                        <span>{plant.name}</span>
+                        <span className={`status ${status.className}`}>{status.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {selectedPlant && (
+                <div className="panel">
+                  <div className="panel-title">
+                    <h2>{selectedPlant.name}</h2>
+                    <span className="meta">{selectedPlant.location}</span>
+                  </div>
+
+                  <div className="analysis-cards">
+                    <div className="metric"><span className="meta">총 급수</span><strong>{selectedPlant.logs.length}회</strong></div>
+                    <div className="metric"><span className="meta">최근 평균</span><strong>{selectedPlant.learnedInterval ?? "-"}일</strong></div>
+                    <div className="metric"><span className="meta">분석 주기</span><strong>{selectedPlant.interval}일</strong></div>
+                    <div className="metric"><span className="meta">다음 예정</span><strong>{selectedPlant.nextDue ?? "-"}</strong></div>
+                  </div>
+
+                  <div className="chart-block">
+                    <div className="chart-title">급수 간격(일) 추이</div>
+                    {analysisGaps.length ? (
+                      <div className="bars">
+                        {analysisGaps.map((item) => (
+                          <div className="bar-col" key={item.date} title={`${item.date} · 직전 급수와 ${item.gap}일 간격`}>
+                            <div className="bar-val">{item.gap}</div>
+                            <div className="bar-track">
+                              <div className="bar" style={{ height: `${(item.gap / maxGap) * 100}%` }} />
+                            </div>
+                            <div className="bar-x">{item.date.slice(5)}</div>
+                          </div>
+                        ))}
                       </div>
-                    ))
-                  ) : (
-                    <div className="empty compact-empty">아직 일기가 없습니다.</div>
-                  )}
+                    ) : (
+                      <div className="empty compact-empty">급수 기록이 2회 이상이면 간격 그래프가 표시됩니다.</div>
+                    )}
+                  </div>
+
+                  <div className="analysis-box">
+                    <ul>
+                      {selectedPlant.recommendationReasons.map((reason) => (
+                        <li key={reason}>{reason}</li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  <div className="calendar-items log-list">
+                    {selectedPlant.logs.slice().reverse().map((log) => (
+                      <div className="calendar-item" key={log.id}>
+                        <div>
+                          <strong>{log.watered_at.slice(0, 10)}</strong>
+                          <span>{log.memo || (log.source === "automation" ? "자동급수" : "수동 기록")}</span>
+                        </div>
+                        <button className="icon-btn danger" onClick={() => deleteWateringLog(log)} title="기록 취소">
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </section>
+          )}
+
+          {activeTab === "calendar" && (
+            <section className="tab-page">
+              <div className="calendar-layout">
+                <div className="panel calendar-panel">
+                  <div className="panel-title">
+                    <h2><CalendarDays size={18} /> 급수 캘린더</h2>
+                    <div className="month-controls">
+                      <button className="icon-btn" onClick={() => setCalendarMonth((prev) => moveMonth(prev, -1))}>
+                        <ChevronLeft size={16} />
+                      </button>
+                      <strong>{calendarMonth}</strong>
+                      <button className="icon-btn" onClick={() => setCalendarMonth((prev) => moveMonth(prev, 1))}>
+                        <ChevronRight size={16} />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="month-grid">
+                    {["일", "월", "화", "수", "목", "금", "토"].map((day) => (
+                      <div className="weekday" key={day}>{day}</div>
+                    ))}
+                    {monthDays.map((day) => {
+                      const count = logsByDate[day.date]?.length ?? 0;
+                      const memoCount = memosByDate[day.date]?.length ?? 0;
+                      return (
+                        <button
+                          className={`day-cell ${day.inMonth ? "" : "muted"} ${selectedDate === day.date ? "selected" : ""} ${day.date === today ? "today" : ""}`}
+                          key={day.date}
+                          onClick={() => setSelectedDate(day.date)}
+                        >
+                          <span className="day-num">{Number(day.date.slice(-2))}</span>
+                          {memoCount > 0 && <span className="diary-mark">📝</span>}
+                          {count > 0 && <strong>💧 {count}</strong>}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
-                <form className="form-grid" onSubmit={addDiary}>
-                  <select className="select" value={diaryForm.plant_id} onChange={(event) => setDiaryForm({ ...diaryForm, plant_id: event.target.value })}>
-                    <option value="">전체 (식물 지정 안 함)</option>
-                    {plants.map((plant) => (
-                      <option key={plant.id} value={plant.id}>{plant.name}</option>
+                <aside className="panel day-detail">
+                  <div className="panel-title">
+                    <h2>{selectedDate}</h2>
+                    <span className="meta">급수 {selectedDateLogs.length} · 메모 {selectedDateMemos.length}</span>
+                  </div>
+
+                  <div className="calendar-items">
+                    {selectedDateLogs.map((log) => (
+                      <div className="calendar-item" key={log.id}>
+                        <div>
+                          <strong>💧 {log.plant_name}</strong>
+                          <span>{log.memo || (log.source === "automation" ? "자동급수" : "수동 기록")}</span>
+                        </div>
+                        <button className="icon-btn danger" onClick={() => deleteWateringLog(log)} title="기록 취소">
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
                     ))}
+                    {selectedDateMemos.map((memo) => (
+                      <div className="calendar-item memo-item" key={memo.id}>
+                        <div>
+                          <strong>📝 메모</strong>
+                          <span>{memo.content}</span>
+                        </div>
+                        <button className="icon-btn danger" onClick={() => deleteDayMemo(memo)} title="메모 삭제">
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    ))}
+                    {selectedDateLogs.length === 0 && selectedDateMemos.length === 0 && (
+                      <div className="empty compact-empty">이 날의 기록이 없습니다.</div>
+                    )}
+                  </div>
+
+                  <form className="form-grid day-add-form" onSubmit={saveDayRecord}>
+                    <div className="meta">이 날짜에 기록 추가</div>
+                    <div className="check-list compact">
+                      {plants.map((plant) => (
+                        <label key={plant.id} className="check-chip">
+                          <input
+                            type="checkbox"
+                            checked={bulkLog.plant_names.includes(plant.name)}
+                            onChange={() => toggleBulkPlant(plant.name)}
+                          />
+                          <span>{plant.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                    <textarea
+                      className="input textarea"
+                      placeholder="메모 (식물을 선택하면 급수 기록 메모로, 선택 안 하면 메모만 저장돼요)"
+                      value={bulkLog.memo}
+                      onChange={(event) => setBulkLog({ ...bulkLog, memo: event.target.value })}
+                    />
+                    <button className="btn primary" type="submit">
+                      <Plus size={16} /> 기록 저장
+                    </button>
+                  </form>
+                </aside>
+              </div>
+            </section>
+          )}
+
+          {activeTab === "memos" && (
+            <section className="tab-page">
+              <div className="panel">
+                <div className="panel-title">
+                  <h2><StickyNote size={18} /> 메모 모아보기</h2>
+                  <span className="meta">{memos.length}건</span>
+                </div>
+                {memos.length ? (
+                  <div className="calendar-items log-list">
+                    {memos.map((memo) => (
+                      <div className="calendar-item memo-item" key={memo.id}>
+                        <div>
+                          <strong>{memo.entry_date}</strong>
+                          <span>{memo.content}</span>
+                        </div>
+                        <button className="icon-btn danger" onClick={() => deleteDayMemo(memo)} title="메모 삭제">
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="empty">아직 메모가 없습니다. 급수 캘린더에서 날짜를 고르고 메모를 적어보세요.</div>
+                )}
+              </div>
+            </section>
+          )}
+
+          {activeTab === "soil" && (
+            <section className="tab-page">
+              <div className="panel">
+                <div className="panel-title">
+                  <h2><Gauge size={18} /> 토양수분 모니터링</h2>
+                  <span className="meta">토양센서 연결 식물 {soilPlants.length}종</span>
+                </div>
+                {soilPlants.length ? (
+                  <div className="soil-grid">
+                    {soilPlants.map((plant) => {
+                      const reading = readings.find((item) => item.device_id === plant.soil_sensor_device_id);
+                      const moisture = reading ? Number(reading.soil_moisture_pct) : null;
+                      const level = moisture === null ? "none" : moisture < 20 ? "low" : moisture < 50 ? "mid" : "high";
+                      return (
+                        <div className="soil-card" key={plant.id}>
+                          <div className="soil-head">
+                            <strong>{plant.name}</strong>
+                            <span className="meta">{plant.soil_sensor_device_id}</span>
+                          </div>
+                          <div className="moisture-bar">
+                            <div className={`moisture-fill ${level}`} style={{ width: `${moisture ?? 0}%` }} />
+                          </div>
+                          <div className="soil-foot">
+                            <span className={`moisture-val ${level}`}>{moisture === null ? "수신 대기" : `${moisture}%`}</span>
+                            <span className="meta">{reading ? new Date(reading.recorded_at).toLocaleString("ko-KR") : "-"}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="empty">토양센서가 연결된 식물이 없습니다. 식물 카드의 ⚙ 설정에서 토양센서를 지정하세요.</div>
+                )}
+              </div>
+            </section>
+          )}
+
+          {activeTab === "add" && (
+            <section className="tab-page">
+              <div className="panel add-panel">
+                <div className="panel-title">
+                  <h2><Plus size={18} /> 새 식물 추가</h2>
+                  <span className="meta">이름과 위치만 입력하세요</span>
+                </div>
+                <form className="form-grid add-form simple" onSubmit={addPlant}>
+                  <input className="input" required placeholder="식물 이름" value={newPlant.name} onChange={(event) => setNewPlant({ ...newPlant, name: event.target.value })} />
+                  <select className="select" value={newPlant.location} onChange={(event) => setNewPlant({ ...newPlant, location: event.target.value })}>
+                    <option value="거실">거실</option>
+                    <option value="베란다">베란다</option>
                   </select>
-                  <textarea
-                    className="input textarea"
-                    placeholder="오늘의 식물 일기를 적어보세요 (물 안 준 날도 OK)"
-                    value={diaryForm.content}
-                    onChange={(event) => setDiaryForm({ ...diaryForm, content: event.target.value })}
-                  />
                   <button className="btn primary" type="submit">
-                    <Plus size={16} />
-                    일기 저장
+                    <CheckCircle size={16} /> 식물 저장
                   </button>
                 </form>
+                <p className="hint">분류·물 요구량·일조량 등 나머지 정보는 나중에 채워 넣을 수 있어요.</p>
               </div>
-            </aside>
-          </div>
-        </section>
-      )}
-
-      {activeTab === "add" && (
-        <section className="tab-page">
-          <div className="panel add-panel">
-            <div className="panel-title">
-              <h2>
-                <Plus size={18} /> 새 식물 추가
-              </h2>
-              <span className="meta">저장하면 바로 DB에 들어갑니다.</span>
-            </div>
-            <form className="form-grid add-form" onSubmit={addPlant}>
-              <input className="input" required placeholder="식물 이름" value={newPlant.name} onChange={(event) => setNewPlant({ ...newPlant, name: event.target.value })} />
-              <select
-                className="select"
-                value={newPlant.location}
-                onChange={(event) =>
-                  setNewPlant({
-                    ...newPlant,
-                    location: event.target.value,
-                    pump_device_id: event.target.value === "베란다" ? "pump-balcony-01" : "pump-living-01",
-                  })
-                }
-              >
-                <option value="거실">거실</option>
-                <option value="베란다">베란다</option>
-              </select>
-              <input className="input" placeholder="분류" value={newPlant.category} onChange={(event) => setNewPlant({ ...newPlant, category: event.target.value })} />
-              <input className="input" placeholder="물 요구" value={newPlant.water_level} onChange={(event) => setNewPlant({ ...newPlant, water_level: event.target.value })} />
-              <input className="input" placeholder="일조량" value={newPlant.sunlight} onChange={(event) => setNewPlant({ ...newPlant, sunlight: event.target.value })} />
-              <input className="input" placeholder="메모" value={newPlant.memo} onChange={(event) => setNewPlant({ ...newPlant, memo: event.target.value })} />
-              <label className="check-row">
-                <input
-                  type="checkbox"
-                  checked={newPlant.automation_enabled}
-                  onChange={(event) =>
-                    setNewPlant({
-                      ...newPlant,
-                      automation_enabled: event.target.checked,
-                      pump_device_id: newPlant.location === "베란다" ? "pump-balcony-01" : "pump-living-01",
-                    })
-                  }
-                />
-                <span>이 식물을 자동급수 대상으로 저장</span>
-              </label>
-              {newPlant.automation_enabled && (
-                <>
-                  <input className="input" placeholder="펌프 장치 ID" value={newPlant.pump_device_id} onChange={(event) => setNewPlant({ ...newPlant, pump_device_id: event.target.value })} />
-                  <input className="input" type="number" min="1" max="100" placeholder="급수 시작 토양수분 %" value={newPlant.moisture_min_pct} onChange={(event) => setNewPlant({ ...newPlant, moisture_min_pct: Number(event.target.value) })} />
-                  <input className="input" type="number" min="1" max="30" placeholder="펌프 작동 초" value={newPlant.watering_seconds} onChange={(event) => setNewPlant({ ...newPlant, watering_seconds: Number(event.target.value) })} />
-                  <input className="input" type="number" min="1" max="168" placeholder="재급수 대기 시간" value={newPlant.cooldown_hours} onChange={(event) => setNewPlant({ ...newPlant, cooldown_hours: Number(event.target.value) })} />
-                </>
-              )}
-              <button className="btn primary" type="submit">
-                <CheckCircle size={16} />
-                DB에 식물 저장
-              </button>
-            </form>
-          </div>
-        </section>
-      )}
+            </section>
+          )}
         </div>
       </div>
+
+      {settingsPlant && (
+        <div className="modal-backdrop" onClick={() => setSettingsPlantId(null)}>
+          <div className="modal" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-head">
+              <h2><Settings size={18} /> {settingsPlant.name} 설정</h2>
+              <button className="icon-btn" onClick={() => setSettingsPlantId(null)}><X size={16} /></button>
+            </div>
+
+            <div className="modal-body">
+              <label className="sensor-link-row">
+                <span>토양센서</span>
+                <select
+                  value={settingsPlant.soil_sensor_enabled ? settingsPlant.soil_sensor_device_id ?? "" : ""}
+                  onChange={(event) => connectSoilSensor(settingsPlant, event.target.value)}
+                >
+                  <option value="">미지정</option>
+                  {availableSensorDevices.map((deviceId) => (
+                    <option key={deviceId} value={deviceId}>{deviceId}</option>
+                  ))}
+                </select>
+              </label>
+
+              <button className="btn" onClick={() => toggleAutomation(settingsPlant)}>
+                <Power size={15} /> 자동급수 {settingsPlant.automation_enabled ? "끄기" : "켜기"}
+              </button>
+
+              {settingsPlant.automation_enabled ? (
+                <>
+                  <div className="automation-grid">
+                    <label>
+                      <span>수분 기준 %</span>
+                      <input name="moisture_min_pct" type="number" min="1" max="100" defaultValue={settingsPlant.moisture_min_pct ?? 30} />
+                    </label>
+                    <label>
+                      <span>급수 초</span>
+                      <input name="watering_seconds" type="number" min="1" max="20" defaultValue={settingsPlant.watering_seconds ?? 5} />
+                    </label>
+                    <label>
+                      <span>쿨다운 시간</span>
+                      <input name="cooldown_hours" type="number" min="0" max="168" defaultValue={settingsPlant.cooldown_hours ?? 12} />
+                    </label>
+                    <label>
+                      <span>하루 최대</span>
+                      <input name="max_runs_per_day" type="number" min="1" max="20" defaultValue={settingsPlant.max_runs_per_day ?? 2} />
+                    </label>
+                    <button type="button" className="btn sm" onClick={(event) => saveAutomationFromPanel(settingsPlant, event.currentTarget)}>
+                      설정 저장
+                    </button>
+                    <button type="button" className="btn sm" onClick={(event) => applyTestAutomation(settingsPlant, event.currentTarget)}>
+                      테스트값 적용
+                    </button>
+                  </div>
+                  <button type="button" className="btn primary" onClick={() => queuePumpTest(settingsPlant)}>
+                    펌프 테스트 5초
+                  </button>
+                </>
+              ) : (
+                <p className="hint">‘자동급수 켜기’를 누르면 펌프/수분 기준을 설정할 수 있어요.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

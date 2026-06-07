@@ -894,59 +894,6 @@ h1 {
   padding-top: 16px;
 }
 
-/* ── 식물 일기 ────────────────────────── */
-.diary-block {
-  margin-top: 16px;
-  border-top: 1px solid var(--line);
-  padding-top: 16px;
-  display: grid;
-  gap: 12px;
-}
-
-.diary-head {
-  font-size: 13px;
-  font-weight: 800;
-  color: #45556a;
-}
-
-.diary-list {
-  display: grid;
-  gap: 8px;
-}
-
-.diary-entry {
-  border: 1px solid #d9e8f5;
-  border-radius: var(--radius-sm);
-  background: #f6fbff;
-  padding: 10px 12px;
-}
-
-.diary-entry-top {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
-}
-
-.diary-tag {
-  border-radius: 999px;
-  background: #e0eefb;
-  color: #2c5a86;
-  padding: 2px 9px;
-  font-size: 11px;
-  font-weight: 800;
-}
-
-.diary-entry p {
-  margin: 0;
-  color: #3d4a3f;
-  font-size: 13px;
-  line-height: 1.55;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
 .textarea {
   height: auto;
   min-height: 84px;
@@ -962,6 +909,219 @@ h1 {
   right: 6px;
   font-size: 11px;
   line-height: 1;
+}
+
+.memo-item {
+  border-color: #f3dca6;
+  background: #fffaef;
+}
+
+/* ── 3칸 센서 그리드 ──────────────────── */
+.sensor-grid.three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+/* ── 식물 분석: 목록 + 그래프 ─────────── */
+.plant-list {
+  display: grid;
+  gap: 6px;
+  max-height: 72vh;
+  overflow: auto;
+}
+
+.plant-list-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  padding: 11px 12px;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: left;
+}
+
+.plant-list-item:hover {
+  border-color: #cfdcd2;
+  background: #fafbf7;
+}
+
+.plant-list-item.active {
+  border-color: var(--green);
+  background: var(--green-soft);
+}
+
+.chart-block {
+  margin-top: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: #fbfdfb;
+  padding: 14px;
+}
+
+.chart-title {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+
+.bars {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  height: 150px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.bar-col {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 5px;
+  justify-items: center;
+  min-width: 36px;
+}
+
+.bar-val {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--green-strong);
+}
+
+.bar-track {
+  display: flex;
+  align-items: flex-end;
+  width: 100%;
+  justify-content: center;
+}
+
+.bar {
+  width: 22px;
+  min-height: 6px;
+  border-radius: 6px 6px 0 0;
+  background: linear-gradient(180deg, #56b079, #2f7d4f);
+}
+
+.bar-x {
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* ── 토양수분 모니터 ──────────────────── */
+.soil-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 14px;
+}
+
+.soil-card {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  box-shadow: var(--shadow);
+  padding: 15px;
+}
+
+.soil-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.soil-head strong {
+  font-size: 16px;
+}
+
+.moisture-bar {
+  height: 14px;
+  border-radius: 999px;
+  background: #eef1ea;
+  overflow: hidden;
+}
+
+.moisture-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--green);
+  transition: width .3s;
+}
+
+.moisture-fill.low { background: var(--rose); }
+.moisture-fill.mid { background: var(--amber); }
+.moisture-fill.high { background: var(--green); }
+.moisture-fill.none { background: #cfcfc7; }
+
+.soil-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.moisture-val {
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.moisture-val.low { color: var(--rose); }
+.moisture-val.mid { color: var(--amber); }
+.moisture-val.high { color: var(--green-strong); }
+.moisture-val.none { color: var(--muted); font-size: 13px; }
+
+/* ── 설정 모달 ────────────────────────── */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(20, 25, 20, .45);
+}
+
+.modal {
+  width: min(440px, 100%);
+  max-height: 88vh;
+  overflow: auto;
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: 0 24px 70px -22px rgba(0, 0, 0, .5);
+}
+
+.modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.modal-head h2 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 17px;
+}
+
+.modal-body {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+}
+
+.add-form.simple {
+  grid-template-columns: 1fr;
+  max-width: 420px;
 }
 
 .check-list {

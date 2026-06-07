@@ -1,13 +1,12 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
-import type { DiaryEntry } from "@/lib/types";
+import type { DayMemo } from "@/lib/types";
 
-async function ensureDiaryTable() {
+async function ensureMemoTable() {
   await query("create extension if not exists pgcrypto");
   await query(
-    `create table if not exists plant_diaries (
+    `create table if not exists day_memos (
        id uuid primary key default gen_random_uuid(),
-       plant_id uuid references plants(id) on delete cascade,
        entry_date date not null,
        content text not null default '',
        created_at timestamptz not null default now()
@@ -16,27 +15,25 @@ async function ensureDiaryTable() {
 }
 
 export async function GET() {
-  await ensureDiaryTable();
+  await ensureMemoTable();
 
-  const diaries = await query<DiaryEntry>(
+  const memos = await query<DayMemo>(
     `select
        id,
-       plant_id,
        to_char(entry_date, 'YYYY-MM-DD') as entry_date,
        content,
        created_at
-     from plant_diaries
+     from day_memos
      order by entry_date desc, created_at desc`,
   );
 
-  return NextResponse.json({ diaries });
+  return NextResponse.json({ memos });
 }
 
 export async function POST(request: Request) {
-  await ensureDiaryTable();
+  await ensureMemoTable();
 
   const body = await request.json();
-  const plantId = body.plant_id ? String(body.plant_id) : null;
   const entryDate = String(body.entry_date ?? "").trim();
   const content = String(body.content ?? "").trim();
 
@@ -44,20 +41,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "날짜(entry_date)가 필요합니다." }, { status: 400 });
   }
   if (!content) {
-    return NextResponse.json({ error: "일기 내용이 필요합니다." }, { status: 400 });
+    return NextResponse.json({ error: "메모 내용이 필요합니다." }, { status: 400 });
   }
 
-  const diaries = await query<DiaryEntry>(
-    `insert into plant_diaries (plant_id, entry_date, content)
-     values ($1, $2, $3)
+  const memos = await query<DayMemo>(
+    `insert into day_memos (entry_date, content)
+     values ($1, $2)
      returning
        id,
-       plant_id,
        to_char(entry_date, 'YYYY-MM-DD') as entry_date,
        content,
        created_at`,
-    [plantId, entryDate, content],
+    [entryDate, content],
   );
 
-  return NextResponse.json({ diary: diaries[0] }, { status: 201 });
+  return NextResponse.json({ memo: memos[0] }, { status: 201 });
 }

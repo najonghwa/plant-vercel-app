@@ -55,9 +55,8 @@ export type PumpCommand = {
   completed_at: string | null;
 };
 
-export type DiaryEntry = {
+export type DayMemo = {
   id: string;
-  plant_id: string | null;
   entry_date: string;
   content: string;
   created_at?: string;
