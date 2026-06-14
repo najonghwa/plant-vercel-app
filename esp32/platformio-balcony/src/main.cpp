@@ -34,14 +34,14 @@ const char *sensorDeviceId = "esp32-balcony-01";
 //     - 릴레이 ON  → NO 붙음  → 펌프 ON  (급수할 때만)
 //   펌프를 NC(평상시 연결) 단자에 꽂으면 릴레이 OFF에서도 펌프가 계속 돈다. NC가 아니라 NO 사용!
 const int  relayPin        = 26;
-const bool relayActiveHigh = false;
+const bool relayActiveHigh = true;  // 이 부품은 HIGH에서 켜짐(active-HIGH). 쉬는 상태=LOW=OFF
 const int  maxPumpSeconds  = 15;
 
 // ── 테스트용 토글 모드 ──────────────────────────────────────
 // relayToggleTest = true 로 바꾸면, 자동급수 대신 릴레이를
 // relayToggleSeconds 초마다 ON/OFF 반복한다. (멀티미터 측정/배선 확인용)
 // 측정 끝나면 다시 false 로 바꾸고 업로드할 것.
-const bool relayToggleTest    = true;  // ★테스트 중★ 끝나면 false 로 되돌리기
+const bool relayToggleTest    = false; // 평소(대시보드 제어) 모드
 const int  relayToggleSeconds = 5;
 
 // ─────────────────────────────────────────────────────────────
