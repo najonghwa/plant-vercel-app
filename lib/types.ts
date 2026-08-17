@@ -38,7 +38,8 @@ export type SensorReading = {
   temperature_c: number;
   humidity_pct: number;
   light_lux: number;
-  soil_moisture_pct: number;
+  /** null은 "토양센서 없음/측정 안 함". 0은 "완전히 말랐음"이라 의미가 다르다. */
+  soil_moisture_pct: number | null;
   recorded_at: string;
 };
 
@@ -66,7 +67,8 @@ export type PlantPhoto = {
   id: string;
   plant_id: string;
   plant_name: string;
-  image_url: string;
+  /** 목록 응답에는 썸네일만 실린다. 원본은 /api/plant-photos/[id]로 따로 가져온다. */
+  thumb_url: string | null;
   note: string;
   captured_at: string;
   created_at: string;

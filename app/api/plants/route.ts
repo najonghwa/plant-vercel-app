@@ -1,8 +1,22 @@
 import { NextResponse } from "next/server";
-import { query } from "@/lib/db";
+import { query, queryOne } from "@/lib/db";
 import type { Plant } from "@/lib/types";
 
-async function ensurePlantMetadata() {
+// 요청마다 ALTER/CREATE TABLE을 돌리면 식물 목록 조회가 그만큼 느려진다.
+// 프로세스당 한 번만 실행되도록 Promise를 재사용하고, 실패하면 다음 요청에서 다시 시도한다.
+let metadataReady: Promise<void> | null = null;
+
+function ensurePlantMetadata() {
+  if (!metadataReady) {
+    metadataReady = migratePlantMetadata().catch((error) => {
+      metadataReady = null;
+      throw error;
+    });
+  }
+  return metadataReady;
+}
+
+async function migratePlantMetadata() {
   await query("alter table plants add column if not exists difficulty text not null default ''");
   await query("alter table plants add column if not exists environment_recommendation text not null default ''");
   await query("alter table plants add column if not exists care_note text not null default ''");
@@ -64,6 +78,13 @@ export async function POST(request: Request) {
 
   if (!["거실", "베란다"].includes(location)) {
     return NextResponse.json({ error: "location은 거실 또는 베란다만 가능합니다." }, { status: 400 });
+  }
+
+  // plants.name에 unique 제약이 있어, 같은 이름을 다시 넣으면 예전에는 정체불명의 500이
+  // 났다. 무엇이 잘못됐는지 알 수 있는 메시지로 바꾼다.
+  const existing = await queryOne<{ id: string }>("select id from plants where name = $1", [name]);
+  if (existing) {
+    return NextResponse.json({ error: `'${name}'은(는) 이미 등록된 식물입니다.` }, { status: 409 });
   }
 
   const plants = await query<Plant>(

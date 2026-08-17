@@ -20,25 +20,45 @@ export async function DELETE(_request: Request, { params }: Params) {
     return NextResponse.json({ error: "급수 기록을 찾을 수 없습니다." }, { status: 404 });
   }
 
-  // 급수 기록을 취소하면 자동급수 잠금(쿨다운/하루 횟수)도 함께 해제한다.
-  const plantId = logs[0].plant_id;
-  if (plantId) {
-    // 1) 쿨다운 해제: 마지막 급수 시각을 비워 다시 줄 수 있게 함
+  // 자동급수 잠금 해제는 "취소한 그 급수"에만 대응해야 한다.
+  // 예전에는 날짜와 출처를 가리지 않고 풀어버려서, 지난달 수동 기록 하나를 지우면
+  // 오늘 이미 두 번 나간 자동급수의 쿨다운과 하루 횟수까지 초기화돼 과습으로 이어졌다.
+  const deleted = logs[0];
+  const plantId = deleted.plant_id;
+  const wateredDate = deleted.watered_at.slice(0, 10);
+
+  if (plantId && deleted.source === "automation") {
+    // 1) 쿨다운: 지운 기록과 같은 날의 last_run_at만 이전 자동급수 시각으로 되돌린다.
     await query(
-      `update plant_automation_configs
-       set last_run_at = null, updated_at = now()
-       where plant_id = $1`,
-      [plantId],
+      `update plant_automation_configs a
+       set last_run_at = (
+             select max(c.completed_at)
+             from pump_commands c
+             where c.plant_id = a.plant_id
+               and c.status = 'completed'
+               and (c.completed_at at time zone 'Asia/Seoul')::date < $2::date
+           ),
+           updated_at = now()
+       where a.plant_id = $1
+         and (a.last_run_at at time zone 'Asia/Seoul')::date = $2::date`,
+      [plantId, wateredDate],
     );
 
-    // 2) 하루 최대 횟수 해제: 오늘 발행된 펌프 명령을 취소 처리해 카운트에서 제외
+    // 2) 하루 최대 횟수: 같은 날 완료된 명령 중 가장 최근 1건만 취소로 돌린다.
+    //    진행 중(pending/running)인 명령은 실제로 물이 나가는 중이므로 건드리지 않는다.
     await query(
       `update pump_commands
-       set status = 'cancelled', completed_at = now()
-       where plant_id = $1
-         and requested_at::date = current_date
-         and status in ('pending', 'running', 'completed')`,
-      [plantId],
+       set status = 'cancelled', completed_at = completed_at
+       where id = (
+         select id
+         from pump_commands
+         where plant_id = $1
+           and status = 'completed'
+           and (requested_at at time zone 'Asia/Seoul')::date = $2::date
+         order by requested_at desc
+         limit 1
+       )`,
+      [plantId, wateredDate],
     );
   }
 

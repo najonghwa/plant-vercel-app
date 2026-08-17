@@ -15,9 +15,36 @@ function isAuthorized(request: Request) {
   return providedToken === expectedToken;
 }
 
+/**
+ * 토양수분은 "측정 안 함"(null)과 "완전히 말랐음"(0)을 구분해야 하는데,
+ * 기존 테이블은 not null default 0이라 미측정이 0으로 둔갑했다.
+ * 손으로 SQL을 돌리지 않아도 되도록 프로세스당 한 번 정리한다.
+ */
+let columnsReady: Promise<void> | null = null;
+
+function ensureSensorColumns() {
+  if (!columnsReady) {
+    columnsReady = migrateSensorColumns().catch((error) => {
+      columnsReady = null;
+      throw error;
+    });
+  }
+  return columnsReady;
+}
+
+async function migrateSensorColumns() {
+  await query("alter table sensor_readings add column if not exists soil_moisture_pct numeric(5, 2)");
+  await query("alter table sensor_readings alter column soil_moisture_pct drop not null");
+  await query("alter table sensor_readings alter column soil_moisture_pct drop default");
+}
+
 export async function GET() {
+  await ensureSensorColumns();
+
+  // 이전에는 location별 최신 1건만 반환해서 전용 토양센서 장치의 값이 통째로 빠졌고,
+  // 그 결과 토양수분 화면이 항상 "수신 대기"로 남았다. 이제 장치별 최신값을 모두 반환한다.
   const readings = await query<SensorReading>(
-    `select distinct on (location)
+    `select distinct on (device_id)
        id,
        location,
        device_id,
@@ -28,7 +55,7 @@ export async function GET() {
        recorded_at
      from sensor_readings
      where location in ($1, $2)
-     order by location, recorded_at desc`,
+     order by device_id, recorded_at desc`,
     [LIVING_ROOM, BALCONY],
   );
 
@@ -40,7 +67,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid device token." }, { status: 401 });
   }
 
-  const body = await request.json();
+  await ensureSensorColumns();
+
+  // 펌웨어가 센서 오류로 NaN을 담아 보내면 JSON 자체가 깨진다.
+  // 예전에는 여기서 예외가 그대로 터져 500이 났고, 기기는 원인을 알 수 없었다.
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Malformed JSON body." }, { status: 400 });
+  }
+
   const location = String(body.location ?? BALCONY);
 
   if (!ALLOWED_LOCATIONS.includes(location)) {
@@ -50,12 +87,20 @@ export async function POST(request: Request) {
   const temperature = Number(body.temperature_c ?? body.temperature ?? body.temp);
   const humidity = Number(body.humidity_pct ?? body.humidity ?? body.humi);
   const light = Number(body.light_lux ?? body.light);
-  const soilMoisture = Number(body.soil_moisture_pct ?? body.soil_moisture ?? body.soil);
   const deviceId = String(body.device_id ?? "esp32-balcony-01");
 
-  if (![temperature, humidity, light, soilMoisture].every(Number.isFinite)) {
+  // 토양수분은 선택값이다. 예전에는 필수라, 토양센서를 떼면 온도·습도·조도까지
+  // 통째로 400으로 거부돼 멀쩡한 측정값이 하나도 저장되지 않았다.
+  const rawSoil = body.soil_moisture_pct ?? body.soil_moisture ?? body.soil;
+  const soilNumber = Number(rawSoil);
+  const soilMoisture =
+    rawSoil === undefined || rawSoil === null || rawSoil === "" || !Number.isFinite(soilNumber)
+      ? null
+      : soilNumber;
+
+  if (![temperature, humidity, light].every(Number.isFinite)) {
     return NextResponse.json(
-      { error: "temperature_c, humidity_pct, light_lux, and soil_moisture_pct must be numbers." },
+      { error: "temperature_c, humidity_pct, and light_lux must be numbers." },
       { status: 400 },
     );
   }
@@ -109,7 +154,10 @@ export async function POST(request: Request) {
          from pump_commands c
          where
            c.plant_id = p.id
-           and c.requested_at::date = current_date
+           -- DB 세션이 UTC라 current_date를 쓰면 한국 시간 오전 9시 이전이 전날로 잡혀
+           -- '하루 최대'가 실제 하루와 어긋난다.
+           and (c.requested_at at time zone 'Asia/Seoul')::date
+               = (now() at time zone 'Asia/Seoul')::date
            and c.status in ('pending', 'running', 'completed')
        ) < a.max_runs_per_day
        and not exists (

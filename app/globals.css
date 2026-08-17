@@ -5,7 +5,8 @@
   --line: #e8e6df;
   --line-soft: #f0eee7;
   --text: #1b1d1a;
-  --muted: #7c8079;
+  /* 흰 배경에서 4.02:1이라 WCAG AA(4.5:1)에 못 미쳤다. 한 단계 어둡게. */
+  --muted: #6b6f68;
   --green: #2f7d4f;
   --green-strong: #246340;
   --green-soft: #e9f6ee;
@@ -32,7 +33,10 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
+  /* textarea가 빠져 있어 메모 입력만 13px로 남았고, iOS Safari는 16px 미만 입력에
+     포커스가 가면 화면을 확대한다. */
   font: inherit;
 }
 
@@ -342,6 +346,12 @@ h1 {
   gap: 18px;
 }
 
+/* 그리드 아이템의 기본 min-width는 auto라, 안에 있는 넓은 테이블이 트랙 자체를
+   밀어낸다. 이것 때문에 전체 현황 탭에서 페이지 전체가 가로로 벌어졌다. */
+.content-col > * {
+  min-width: 0;
+}
+
 /* ── 대시보드 레이아웃 ────────────────── */
 .dash {
   display: grid;
@@ -475,6 +485,30 @@ h1 {
   display: block;
   margin-top: 3px;
   font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pmetric-sub {
+  display: block;
+  margin-top: 2px;
+  min-height: 14px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* 급한 카드일수록 왼쪽 띠가 진해져 목록에서 바로 눈에 띄게 한다. */
+.pcard {
+  border-left-width: 4px;
+  border-left-color: var(--line);
+}
+
+.pcard.tone-late {
+  border-left-color: var(--rose);
+}
+
+.pcard.tone-soon {
+  border-left-color: var(--amber);
 }
 
 .pcard-meta {
@@ -582,7 +616,10 @@ h1 {
 
 .automation-grid input {
   min-width: 0;
-  height: 32px;
+  /* 라벨은 작게 둬도 되지만 입력 자체가 16px보다 작으면 iOS Safari가 탭할 때마다
+     화면을 확대한다. 높이도 손가락으로 누를 만하게 키운다. */
+  height: 40px;
+  font-size: 16px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fff;
@@ -659,6 +696,71 @@ h1 {
   margin-top: 4px;
   font-size: 15px;
   font-weight: 900;
+}
+
+/* 수신이 끊긴 센서는 값이 흐려 보이게 해서 현재값으로 오해하지 않게 한다. */
+.sensor-card.stale {
+  border-color: #f0d8bd;
+  background: #fffaf2;
+}
+
+.sensor-card.stale .sensor-value,
+.soil-card.stale .moisture-val {
+  color: var(--muted);
+}
+
+.sensor-card.stale .moisture-fill,
+.soil-card.stale .moisture-fill {
+  opacity: .45;
+}
+
+.sensor-age {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 999px;
+  padding: 3px 9px;
+  font-size: 11.5px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.sensor-age.live {
+  background: var(--green-soft);
+  color: var(--green-strong);
+}
+
+.sensor-age.stale {
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
+.sensor-note {
+  margin: 10px 0 0;
+  color: var(--amber);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+/* 켜뒀지만 실제로는 동작하지 않는 설정처럼, 알고 있어야 하는 상태를 알린다. */
+.warn-note {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 0;
+  border: 1px solid #f0d8bd;
+  border-radius: var(--radius-sm);
+  background: var(--amber-soft);
+  padding: 10px 12px;
+  color: var(--amber);
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 1.55;
+}
+
+.warn-note svg {
+  flex: none;
+  margin-top: 2px;
 }
 
 /* ── 전체 현황 테이블 ─────────────────── */
@@ -1076,6 +1178,213 @@ h1 {
 .moisture-val.high { color: var(--green-strong); }
 .moisture-val.none { color: var(--muted); font-size: 13px; }
 
+/* ── 사진 ─────────────────────────────── */
+.photo-layout {
+  display: grid;
+  gap: 18px;
+}
+
+.photo-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.photo-form .field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.photo-form .photo-picker,
+.photo-form .photo-preview,
+.photo-form .photo-preview-note,
+.photo-form > .btn {
+  grid-column: 1 / -1;
+}
+
+/* 파일 선택 버튼은 기본 높이가 제각각이라 다른 입력과 맞춰준다. */
+.file-input {
+  height: auto;
+  padding: 9px 12px;
+  line-height: 1.4;
+}
+
+.file-input::file-selector-button {
+  margin-right: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8f8f5;
+  padding: 6px 10px;
+  color: #54584f;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.photo-preview {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: #f8f8f5;
+  padding: 10px;
+}
+
+.photo-preview img {
+  width: 74px;
+  height: 74px;
+  flex: none;
+  border-radius: 10px;
+  object-fit: cover;
+}
+
+.photo-preview-body {
+  display: grid;
+  gap: 5px;
+  justify-items: start;
+  min-width: 0;
+}
+
+.photo-preview-body strong {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+.photo-preview-note {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.photo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+.photo-card {
+  position: relative;
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  padding: 8px;
+}
+
+.photo-thumb {
+  display: block;
+  overflow: hidden;
+  border: 0;
+  border-radius: 10px;
+  background: #f1f1ec;
+  padding: 0;
+  aspect-ratio: 4 / 3;
+}
+
+.photo-thumb img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.photo-missing {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+
+.photo-card figcaption {
+  display: grid;
+  gap: 4px;
+  padding: 0 2px 2px;
+}
+
+.photo-caption-main {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.photo-caption-main strong {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+.photo-card figcaption p {
+  margin: 0;
+  color: #5d615a;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.photo-delete {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  background: rgba(255, 255, 255, .92);
+}
+
+/* 사진을 볼 때는 배경을 더 어둡게 깔아야 색이 제대로 보인다.
+   .modal-backdrop이 이 파일 아래쪽에 있어, 클래스 하나로는 같은 특이성에 밀린다. */
+.modal-backdrop.photo-backdrop {
+  background: rgba(12, 15, 12, .72);
+}
+
+.photo-viewer {
+  display: grid;
+  width: min(760px, 100%);
+  max-height: 92vh;
+  gap: 10px;
+  border-radius: var(--radius);
+  background: var(--panel);
+  padding: 14px;
+  box-shadow: 0 24px 70px -22px rgba(0, 0, 0, .5);
+}
+
+.photo-viewer-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+
+.photo-viewer-head div {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.photo-viewer-body {
+  display: flex;
+  min-height: 120px;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+}
+
+.photo-viewer-body img {
+  max-width: 100%;
+  max-height: 74vh;
+  border-radius: var(--radius-sm);
+  object-fit: contain;
+}
+
+.photo-viewer-note {
+  margin: 0;
+  color: #5d615a;
+  font-size: 13px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
 /* ── 설정 모달 ────────────────────────── */
 .modal-backdrop {
   position: fixed;
@@ -1243,8 +1552,21 @@ h1 {
   .stats,
   .filters,
   .sensor-strip,
-  .add-form {
+  .add-form,
+  .photo-form {
     grid-template-columns: 1fr;
+  }
+
+  .photo-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .photo-viewer {
+    padding: 12px;
+  }
+
+  .photo-viewer-body img {
+    max-height: 64vh;
   }
 
   .plant-grid {
@@ -1262,5 +1584,22 @@ h1 {
   .day-cell {
     min-height: 62px;
     padding: 6px;
+  }
+
+  /* 좁은 칸에서 '💧 N' 배지가 두 줄로 깨지고 📝가 날짜 숫자와 겹쳤다. */
+  .day-num {
+    font-size: 11px;
+  }
+
+  .day-cell strong {
+    padding: 2px 5px;
+    font-size: 10px;
+    white-space: nowrap;
+  }
+
+  .diary-mark {
+    top: 4px;
+    right: 3px;
+    font-size: 9px;
   }
 }

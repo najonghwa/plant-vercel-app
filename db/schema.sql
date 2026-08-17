@@ -36,13 +36,21 @@ create table if not exists sensor_readings (
   temperature_c numeric(5, 2) not null,
   humidity_pct numeric(5, 2) not null,
   light_lux integer not null,
-  soil_moisture_pct numeric(5, 2) not null default 0,
+  -- 토양센서를 달지 않은 기기도 있으므로 nullable이다.
+  -- null은 "측정 안 함"이고, 0은 "완전히 말랐음"이라 의미가 전혀 다르다.
+  soil_moisture_pct numeric(5, 2),
   recorded_at timestamptz not null default now(),
   created_at timestamptz not null default now()
 );
 
 alter table sensor_readings
-  add column if not exists soil_moisture_pct numeric(5, 2) not null default 0;
+  add column if not exists soil_moisture_pct numeric(5, 2);
+
+alter table sensor_readings
+  alter column soil_moisture_pct drop not null;
+
+alter table sensor_readings
+  alter column soil_moisture_pct drop default;
 
 create table if not exists plant_automation_configs (
   plant_id uuid primary key references plants(id) on delete cascade,
@@ -88,14 +96,19 @@ create table if not exists day_memos (
 create index if not exists day_memos_date_idx
   on day_memos (entry_date desc, created_at desc);
 
+-- 사진은 별도 스토리지 없이 data URL 문자열로 보관한다.
+-- image_url은 원본, thumb_url은 목록용 축소본이며 목록 조회에는 thumb_url만 쓴다.
 create table if not exists plant_photos (
   id uuid primary key default gen_random_uuid(),
   plant_id uuid not null references plants(id) on delete cascade,
   image_url text not null,
+  thumb_url text not null default '',
   note text not null default '',
   captured_at date not null default current_date,
   created_at timestamptz not null default now()
 );
+
+alter table plant_photos add column if not exists thumb_url text not null default '';
 
 create index if not exists watering_logs_plant_date_idx
   on watering_logs (plant_name, watered_at desc);
