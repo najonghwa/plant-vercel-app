@@ -2,7 +2,20 @@ import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import type { DayMemo } from "@/lib/types";
 
-async function ensureMemoTable() {
+// 요청마다 DDL을 돌리면 메모 조회가 그만큼 느려진다. 프로세스당 한 번만 실행한다.
+let memoTableReady: Promise<void> | null = null;
+
+function ensureMemoTable() {
+  if (!memoTableReady) {
+    memoTableReady = migrateMemoTable().catch((error) => {
+      memoTableReady = null;
+      throw error;
+    });
+  }
+  return memoTableReady;
+}
+
+async function migrateMemoTable() {
   await query("create extension if not exists pgcrypto");
   await query(
     `create table if not exists day_memos (
@@ -11,6 +24,10 @@ async function ensureMemoTable() {
        content text not null default '',
        created_at timestamptz not null default now()
      )`,
+  );
+  await query(
+    `create index if not exists day_memos_date_idx
+     on day_memos (entry_date desc, created_at desc)`,
   );
 }
 

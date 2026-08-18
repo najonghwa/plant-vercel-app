@@ -4,7 +4,24 @@ import { queryOne, withTransaction } from "@/lib/db";
 const BALCONY = "\uBCA0\uB780\uB2E4";
 const RUCOLA = "\uB8E8\uAF34\uB77C";
 
-export async function GET() {
+function isAuthorized(request: Request) {
+  const expectedToken = process.env.DEVICE_API_TOKEN;
+  if (!expectedToken) return false;
+
+  const url = new URL(request.url);
+  const providedToken = request.headers.get("x-device-token") || url.searchParams.get("token");
+  return providedToken === expectedToken;
+}
+
+/**
+ * 일회성 셋업 라우트. 자동급수 설정과 식물 위치를 덮어쓰므로 토큰을 요구하고,
+ * 주소를 여는 것만으로 실행되지 않도록 POST로 둔다.
+ */
+export async function POST(request: Request) {
+  if (!isAuthorized(request)) {
+    return NextResponse.json({ error: "Invalid device token." }, { status: 401 });
+  }
+
   const plant = await queryOne<{ id: string; name: string }>(
     `select id, name
      from plants

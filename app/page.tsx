@@ -53,7 +53,7 @@ const SENSOR_STALE_HOURS = 6;
 
 /** db/schema.sql의 check 제약과 반드시 같아야 한다. 벗어난 값은 저장 시 500이 난다. */
 const MOISTURE_RANGE = [1, 100] as const;
-const SECONDS_RANGE = [1, 30] as const;
+const SECONDS_RANGE = [1, 15] as const;
 const COOLDOWN_RANGE = [1, 168] as const;
 const MAX_RUNS_RANGE = [1, 12] as const;
 
@@ -109,6 +109,9 @@ function median(values: number[]) {
 
 /** 이만큼은 쌓여야 "습관"이라고 볼 수 있다. 간격 1개짜리는 우연에 가깝다. */
 const MIN_GAPS_FOR_LEARNING = 2;
+
+/** 서버 상태를 바꾸지 않는 run() 키. 조회 결과를 무효화하는 카운터를 올리면 안 된다. */
+const READ_ONLY_KEYS = /^(photos$|photo-open:|photo-prepare$)/;
 
 function estimateBaseInterval(waterLevel: string) {
   if (waterLevel === "매우 적게") return 21;
@@ -449,6 +452,7 @@ export default function Page() {
   const [memos, setMemos] = useState<DayMemo[]>([]);
   const [photos, setPhotos] = useState<PlantPhoto[]>([]);
   const [photosLoaded, setPhotosLoaded] = useState(false);
+  const [photosError, setPhotosError] = useState("");
   const [query, setQuery] = useState("");
   const [location, setLocation] = useState<"전체" | "거실" | "베란다">("전체");
   const [sort, setSort] = useState<"priority" | "name">("priority");
@@ -459,9 +463,13 @@ export default function Page() {
   const [settingsPlantId, setSettingsPlantId] = useState<string | null>(null);
   const [newPlant, setNewPlant] = useState(blankPlant);
   const [bulkLog, setBulkLog] = useState({ plant_names: [] as string[], memo: "" });
-  const [photoDraft, setPhotoDraft] = useState({ plantId: "", note: "" });
+  // 촬영일은 캘린더의 selectedDate와 분리해야 한다. 같이 쓰면 사진 촬영일을 바꾼 뒤
+  // 캘린더에서 남기는 급수 기록까지 그 날짜로 저장된다.
+  const [photoDraft, setPhotoDraft] = useState({ plantId: "", note: "", capturedAt: "" });
   const [pendingPhoto, setPendingPhoto] = useState<{ image: string; thumb: string; name: string } | null>(null);
-  const [lightbox, setLightbox] = useState<{ photo: PlantPhoto; imageUrl: string | null } | null>(null);
+  const [lightbox, setLightbox] = useState<
+    { photo: PlantPhoto; imageUrl: string | null; status: "loading" | "ready" | "error" } | null
+  >(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const [selectedDate, setSelectedDate] = useState(today);
   const [calendarMonth, setCalendarMonth] = useState(today.slice(0, 7));
@@ -470,6 +478,7 @@ export default function Page() {
   const [busyKeys, setBusyKeys] = useState<string[]>([]);
   const inFlightKeys = useRef<Set<string>>(new Set());
   const loadSeq = useRef(0);
+  const photoSeq = useRef(0);
   const mutationCount = useRef(0);
 
   /**
@@ -486,7 +495,9 @@ export default function Page() {
     try {
       await action();
       // 진행 중이던 전체 조회가 이 변경 이전 상태로 화면을 되돌리지 않게 표시해 둔다.
-      if (key !== "photos") mutationCount.current += 1;
+      // 서버 상태를 바꾸지 않는 동작(조회·이미지 축소)은 세지 않는다. 세면 사진을
+      // 크게 보기만 해도 진행 중이던 새로고침 결과가 통째로 버려진다.
+      if (!READ_ONLY_KEYS.test(key)) mutationCount.current += 1;
     } catch (err) {
       setError(err instanceof Error ? err.message : "요청을 처리하지 못했습니다.");
     } finally {
@@ -531,9 +542,15 @@ export default function Page() {
   }
 
   async function loadPhotos() {
+    // 목록 조회가 늦게 도착해 그 사이의 업로드·삭제를 되돌리지 않게 막는다.
+    const seq = ++photoSeq.current;
+    const mutationsAtStart = mutationCount.current;
     const data = await fetchJson<{ photos: PlantPhoto[] }>("/api/plant-photos");
+    if (seq !== photoSeq.current || mutationsAtStart !== mutationCount.current) return;
+
     setPhotos(data.photos);
     setPhotosLoaded(true);
+    setPhotosError("");
   }
 
   useEffect(() => {
@@ -543,8 +560,22 @@ export default function Page() {
   // 사진 목록은 썸네일이라도 무거우므로 사진 탭을 처음 열 때만 가져온다.
   useEffect(() => {
     if (activeTab !== "photos" || photosLoaded) return;
-    run("photos", loadPhotos);
+    run("photos", async () => {
+      try {
+        await loadPhotos();
+      } catch (error) {
+        // 빈 목록과 "불러오지 못함"은 다르다. 구분하지 않으면 사진이 없는 줄 안다.
+        setPhotosError(error instanceof Error ? error.message : "사진을 불러오지 못했습니다.");
+        throw error;
+      }
+    });
   }, [activeTab, photosLoaded]);
+
+  // 촬영일 기본값은 사진 탭을 열 때의 오늘로 둔다.
+  useEffect(() => {
+    if (activeTab !== "photos") return;
+    setPhotoDraft((prev) => (prev.capturedAt ? prev : { ...prev, capturedAt: today }));
+  }, [activeTab, today]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNowMs(Date.now()), 60000);
@@ -757,8 +788,13 @@ export default function Page() {
     if (!file) return;
 
     await run("photo-prepare", async () => {
-      const prepared = await preparePhoto(file);
-      setPendingPhoto({ ...prepared, name: file.name });
+      try {
+        const prepared = await preparePhoto(file);
+        setPendingPhoto({ ...prepared, name: file.name });
+      } finally {
+        // 실패했을 때 input에 같은 파일이 남아 있으면 다시 골라도 change가 안 뜬다.
+        if (photoInputRef.current) photoInputRef.current.value = "";
+      }
     });
   }
 
@@ -774,6 +810,12 @@ export default function Page() {
       return;
     }
 
+    const capturedAt = photoDraft.capturedAt || today;
+    if (capturedAt > today) {
+      window.alert("촬영일은 오늘 이후로 지정할 수 없습니다.");
+      return;
+    }
+
     await run("photo-upload", async () => {
       const data = await fetchJson<{ photo: PlantPhoto }>("/api/plant-photos", {
         method: "POST",
@@ -782,11 +824,19 @@ export default function Page() {
           image_url: pendingPhoto.image,
           thumb_url: pendingPhoto.thumb,
           note: photoDraft.note.trim(),
-          captured_at: selectedDate,
+          captured_at: capturedAt,
         }),
       });
 
-      setPhotos((prev) => [data.photo, ...prev]);
+      // 서버 목록과 같은 기준으로 정렬한다. 무조건 앞에 붙이면 과거 날짜 사진이
+      // 가장 최신인 것처럼 보인다.
+      setPhotos((prev) =>
+        [data.photo, ...prev].sort(
+          (a, b) =>
+            b.captured_at.localeCompare(a.captured_at) ||
+            String(b.created_at).localeCompare(String(a.created_at)),
+        ),
+      );
       setPendingPhoto(null);
       setPhotoDraft((prev) => ({ ...prev, note: "" }));
       if (photoInputRef.current) photoInputRef.current.value = "";
@@ -805,11 +855,23 @@ export default function Page() {
   }
 
   async function openPhoto(photo: PlantPhoto) {
-    setLightbox({ photo, imageUrl: null });
+    setLightbox({ photo, imageUrl: null, status: "loading" });
     await run(`photo-open:${photo.id}`, async () => {
-      const data = await fetchJson<{ image_url: string }>(`/api/plant-photos/${photo.id}`);
-      // 여는 도중 다른 사진으로 넘어갔으면 늦게 온 응답으로 덮어쓰지 않는다.
-      setLightbox((prev) => (prev?.photo.id === photo.id ? { ...prev, imageUrl: data.image_url } : prev));
+      try {
+        const data = await fetchJson<{ image_url: string }>(`/api/plant-photos/${photo.id}`);
+        // 여는 도중 다른 사진으로 넘어갔으면 늦게 온 응답으로 덮어쓰지 않는다.
+        setLightbox((prev) =>
+          prev?.photo.id === photo.id ? { ...prev, imageUrl: data.image_url, status: "ready" } : prev,
+        );
+      } catch (error) {
+        // 실패를 알리지 않으면 "불러오는 중"에서 영원히 멈춘 것처럼 보인다.
+        setLightbox((prev) => (prev?.photo.id === photo.id ? { ...prev, status: "error" } : prev));
+        // 이미 지워진 사진이면 목록에서도 치운다.
+        if (error instanceof Error && /찾을 수 없습니다/.test(error.message)) {
+          setPhotos((prev) => prev.filter((item) => item.id !== photo.id));
+        }
+        throw error;
+      }
     });
   }
 
@@ -1481,7 +1543,7 @@ export default function Page() {
               <div className="panel">
                 <div className="panel-title">
                   <h2><ImagePlus size={18} /> 사진 올리기</h2>
-                  <span className="meta">촬영일 {selectedDate}</span>
+                  <span className="meta">{photos.length}장 기록됨</span>
                 </div>
 
                 <form className="form-grid photo-form" onSubmit={submitPhoto}>
@@ -1504,8 +1566,11 @@ export default function Page() {
                     <input
                       className="input"
                       type="date"
-                      value={selectedDate}
-                      onChange={(event) => setSelectedDate(event.target.value || today)}
+                      max={today}
+                      value={photoDraft.capturedAt || today}
+                      onChange={(event) =>
+                        setPhotoDraft({ ...photoDraft, capturedAt: event.target.value || today })
+                      }
                     />
                   </label>
 
@@ -1576,6 +1641,19 @@ export default function Page() {
 
                 {isBusy("photos") ? (
                   <div className="empty">사진을 불러오는 중입니다.</div>
+                ) : photosError ? (
+                  <div className="empty">
+                    <p>{photosError}</p>
+                    <button
+                      className="btn sm"
+                      onClick={() => {
+                        setPhotosError("");
+                        run("photos", loadPhotos);
+                      }}
+                    >
+                      <RefreshCw size={14} /> 다시 시도
+                    </button>
+                  </div>
                 ) : photos.length ? (
                   <div className="photo-grid">
                     {photos.map((photo) => (
@@ -1697,9 +1775,16 @@ export default function Page() {
               <button className="icon-btn" title="닫기" onClick={() => setLightbox(null)}><X size={16} /></button>
             </div>
             <div className="photo-viewer-body">
-              {lightbox.imageUrl ? (
+              {lightbox.status === "ready" && lightbox.imageUrl ? (
                 /* eslint-disable-next-line @next/next/no-img-element */
                 <img src={lightbox.imageUrl} alt={`${lightbox.photo.plant_name} ${lightbox.photo.captured_at}`} />
+              ) : lightbox.status === "error" ? (
+                <div className="empty compact-empty">
+                  <p>원본을 불러오지 못했습니다.</p>
+                  <button className="btn sm" onClick={() => openPhoto(lightbox.photo)}>
+                    <RefreshCw size={14} /> 다시 시도
+                  </button>
+                </div>
               ) : (
                 <div className="empty compact-empty">원본을 불러오는 중입니다.</div>
               )}

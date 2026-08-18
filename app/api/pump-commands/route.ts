@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { query, queryOne, withTransaction } from "@/lib/db";
+import { ensureWateringSecondsLimit } from "@/lib/migrations";
 import type { PumpCommand } from "@/lib/types";
 
 /** 기기가 명령을 가져간 뒤 이 시간 안에 결과를 알리지 않으면 실패로 보고 회수한다. */
@@ -7,6 +8,9 @@ const RUNNING_TIMEOUT_MINUTES = 10;
 
 /** 대시보드의 "펌프 테스트"로 만든 명령. 급수 이력이나 쿨다운에 반영하지 않는다. */
 const MANUAL_REASON_PREFIX = "manual";
+
+/** 수동 펌프 테스트의 하루 상한. 인증이 없는 라우트라 총량으로 피해를 묶어둔다. */
+const MANUAL_RUNS_PER_DAY = 5;
 
 function isAuthorized(request: Request) {
   const expectedToken = process.env.DEVICE_API_TOKEN;
@@ -60,6 +64,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  await ensureWateringSecondsLimit();
+
   const body = await request.json();
   const plantId = String(body.plant_id ?? "");
   const plantName = String(body.plant_name ?? "");
@@ -81,38 +87,55 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "식물을 찾을 수 없습니다." }, { status: 404 });
   }
 
-  // 아직 처리되지 않은 명령이 있는데 또 넣으면 기기가 연달아 물을 준다.
-  const open = await queryOne<{ id: string }>(
-    `select id from pump_commands
-     where pump_device_id = $1 and status in ('pending', 'running')
-     limit 1`,
+  // 이 라우트는 대시보드가 브라우저에서 직접 부르므로 기기 토큰을 요구할 수 없다.
+  // 인증이 없는 상태에서 실제로 물이 나가는 동작이므로, 하루에 나갈 수 있는 총량을
+  // 제한해 무한 반복 급수만은 막는다.
+  const todayRuns = await queryOne<{ count: number }>(
+    `select count(*)::int as count
+     from pump_commands
+     where pump_device_id = $1
+       and reason like 'manual%'
+       and (requested_at at time zone 'Asia/Seoul')::date = (now() at time zone 'Asia/Seoul')::date
+       and status in ('pending', 'running', 'completed')`,
     [pumpDeviceId],
   );
-  if (open) {
+  if ((todayRuns?.count ?? 0) >= MANUAL_RUNS_PER_DAY) {
     return NextResponse.json(
-      { error: "아직 처리되지 않은 펌프 명령이 있습니다. 완료된 뒤 다시 시도해주세요." },
-      { status: 409 },
+      { error: `펌프 테스트는 하루 ${MANUAL_RUNS_PER_DAY}회까지만 가능합니다.` },
+      { status: 429 },
     );
   }
 
-  const commands = await query<PumpCommand>(
-    `insert into pump_commands (plant_id, plant_name, location, pump_device_id, watering_seconds, reason)
-     values ($1, $2, $3, $4, $5, 'manual dashboard pump test')
-     returning
-       id,
-       plant_id,
-       plant_name,
-       location,
-       pump_device_id,
-       watering_seconds,
-       reason,
-       status,
-       requested_at,
-       completed_at`,
-    [plantId, plantName, location, pumpDeviceId, wateringSeconds],
-  );
+  try {
+    const commands = await query<PumpCommand>(
+      `insert into pump_commands (plant_id, plant_name, location, pump_device_id, watering_seconds, reason)
+       values ($1, $2, $3, $4, $5, 'manual dashboard pump test')
+       returning
+         id,
+         plant_id,
+         plant_name,
+         location,
+         pump_device_id,
+         watering_seconds,
+         reason,
+         status,
+         requested_at,
+         completed_at`,
+      [plantId, plantName, location, pumpDeviceId, wateringSeconds],
+    );
 
-  return NextResponse.json({ command: commands[0] }, { status: 201 });
+    return NextResponse.json({ command: commands[0] }, { status: 201 });
+  } catch (error) {
+    // 기기당 미처리 명령 1건만 허용하는 유니크 인덱스. 코드로 미리 검사하면
+    // 동시 요청 두 건이 같은 순간에 통과할 수 있어 DB가 최종 판정을 한다.
+    if ((error as { code?: string }).code === "23505") {
+      return NextResponse.json(
+        { error: "아직 처리되지 않은 펌프 명령이 있습니다. 완료된 뒤 다시 시도해주세요." },
+        { status: 409 },
+      );
+    }
+    throw error;
+  }
 }
 
 export async function PATCH(request: Request) {

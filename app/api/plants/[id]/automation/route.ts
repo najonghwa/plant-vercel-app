@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { query, queryOne } from "@/lib/db";
+import { ensureWateringSecondsLimit } from "@/lib/migrations";
 
 const BALCONY = "\uBCA0\uB780\uB2E4";
 
@@ -8,6 +9,8 @@ type Params = {
 };
 
 export async function PUT(request: Request, { params }: Params) {
+  await ensureWateringSecondsLimit();
+
   const { id } = await params;
   const body = await request.json();
 

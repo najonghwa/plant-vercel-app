@@ -9,6 +9,11 @@ import type { PlantPhoto } from "@/lib/types";
  */
 const MAX_IMAGE_CHARS = 3_000_000; // data URL 기준 약 2.2MB
 const MAX_THUMB_CHARS = 400_000;
+/** 식물 한 종당, 그리고 전체 보관 장수 상한. DB가 사진으로 가득 차는 것을 막는다. */
+const MAX_PHOTOS_PER_PLANT = 200;
+const MAX_PHOTOS_TOTAL = 2000;
+/** 목록은 최신부터 이만큼만 내려준다. */
+const LIST_LIMIT = 120;
 
 // 요청마다 DDL을 돌리지 않도록 프로세스당 한 번만 실행한다.
 let tableReady: Promise<void> | null = null;
@@ -58,7 +63,9 @@ export async function GET() {
        ph.created_at
      from plant_photos ph
      join plants p on p.id = ph.plant_id
-     order by ph.captured_at desc, ph.created_at desc`,
+     order by ph.captured_at desc, ph.created_at desc
+     limit $1`,
+    [LIST_LIMIT],
   );
 
   return NextResponse.json({ photos });
@@ -81,11 +88,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "이미지 형식이 올바르지 않습니다." }, { status: 400 });
   }
 
-  if (imageUrl.length > MAX_IMAGE_CHARS || thumbUrl.length > MAX_THUMB_CHARS) {
+  // 썸네일을 비워 보내면 원본이 썸네일 자리에 들어간다. 실제로 저장될 값으로 검사해야
+  // 썸네일 용량 제한이 우회되지 않는다.
+  const storedThumb = thumbUrl || imageUrl;
+
+  if (imageUrl.length > MAX_IMAGE_CHARS || storedThumb.length > MAX_THUMB_CHARS) {
     return NextResponse.json(
       { error: "사진 용량이 너무 큽니다. 더 작은 사진으로 다시 시도해주세요." },
       { status: 413 },
     );
+  }
+
+  if (!/^data:image\/(jpeg|png|webp);base64,/.test(storedThumb)) {
+    return NextResponse.json({ error: "썸네일 형식이 올바르지 않습니다." }, { status: 400 });
   }
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(capturedAt)) {
@@ -95,6 +110,26 @@ export async function POST(request: Request) {
   const plant = await queryOne<{ id: string }>("select id from plants where id = $1", [plantId]);
   if (!plant) {
     return NextResponse.json({ error: "식물을 찾을 수 없습니다." }, { status: 404 });
+  }
+
+  const counts = await queryOne<{ per_plant: number; total: number }>(
+    `select
+       count(*) filter (where plant_id = $1)::int as per_plant,
+       count(*)::int as total
+     from plant_photos`,
+    [plantId],
+  );
+  if ((counts?.per_plant ?? 0) >= MAX_PHOTOS_PER_PLANT) {
+    return NextResponse.json(
+      { error: `한 식물에는 사진을 ${MAX_PHOTOS_PER_PLANT}장까지 보관할 수 있습니다.` },
+      { status: 409 },
+    );
+  }
+  if ((counts?.total ?? 0) >= MAX_PHOTOS_TOTAL) {
+    return NextResponse.json(
+      { error: `사진은 전체 ${MAX_PHOTOS_TOTAL}장까지 보관할 수 있습니다.` },
+      { status: 409 },
+    );
   }
 
   // 등록 직후 화면에 바로 그려야 하므로 반환값에도 원본이 아닌 썸네일만 싣는다.
@@ -109,7 +144,7 @@ export async function POST(request: Request) {
        note,
        captured_at::text,
        created_at`,
-    [plantId, imageUrl, thumbUrl || imageUrl, String(body.note ?? "").slice(0, 500), capturedAt],
+    [plantId, imageUrl, storedThumb, String(body.note ?? "").slice(0, 500), capturedAt],
   );
 
   return NextResponse.json({ photo: photos[0] }, { status: 201 });

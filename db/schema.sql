@@ -57,7 +57,7 @@ create table if not exists plant_automation_configs (
   enabled boolean not null default false,
   pump_device_id text not null default 'pump-balcony-01',
   moisture_min_pct numeric(5, 2) not null default 30,
-  watering_seconds integer not null default 5 check (watering_seconds between 1 and 30),
+  watering_seconds integer not null default 5 check (watering_seconds between 1 and 15),
   cooldown_hours integer not null default 12 check (cooldown_hours between 1 and 168),
   max_runs_per_day integer not null default 2 check (max_runs_per_day between 1 and 12),
   last_run_at timestamptz,
@@ -79,7 +79,7 @@ create table if not exists pump_commands (
   plant_name text not null,
   location text not null check (location in ('거실', '베란다')),
   pump_device_id text not null,
-  watering_seconds integer not null check (watering_seconds between 1 and 30),
+  watering_seconds integer not null check (watering_seconds between 1 and 15),
   reason text not null default '',
   status text not null default 'pending' check (status in ('pending', 'running', 'completed', 'cancelled', 'failed')),
   requested_at timestamptz not null default now(),
@@ -121,3 +121,22 @@ create index if not exists pump_commands_device_status_idx
 
 create index if not exists plant_photos_plant_captured_idx
   on plant_photos (plant_id, captured_at desc, created_at desc);
+
+-- 펌프 하드웨어가 실제로 허용하는 상한이 15초라, 그보다 큰 값은 설정해도
+-- 기기에서 잘려 나간다. 기존 DB의 30초 제약도 15초로 맞춘다.
+update plant_automation_configs set watering_seconds = 15 where watering_seconds > 15;
+update pump_commands set watering_seconds = 15 where watering_seconds > 15;
+
+alter table plant_automation_configs drop constraint if exists plant_automation_configs_watering_seconds_check;
+alter table plant_automation_configs add constraint plant_automation_configs_watering_seconds_check
+  check (watering_seconds between 1 and 15);
+
+alter table pump_commands drop constraint if exists pump_commands_watering_seconds_check;
+alter table pump_commands add constraint pump_commands_watering_seconds_check
+  check (watering_seconds between 1 and 15);
+
+-- 기기당 처리 중인 명령은 하나뿐이어야 한다. 코드로만 검사하면 동시 요청 두 건이
+-- 같은 순간에 통과해 연속 급수가 나간다.
+create unique index if not exists pump_commands_one_open_per_device
+  on pump_commands (pump_device_id)
+  where status in ('pending', 'running');
