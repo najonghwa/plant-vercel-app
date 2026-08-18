@@ -1,16 +1,28 @@
 import { NextResponse } from "next/server";
 import { query, queryOne, withTransaction } from "@/lib/db";
-import { ensureWateringSecondsLimit } from "@/lib/migrations";
+import { ensureCommandTracking, ensureWateringSecondsLimit } from "@/lib/migrations";
 import type { PumpCommand } from "@/lib/types";
 
-/** 기기가 명령을 가져간 뒤 이 시간 안에 결과를 알리지 않으면 실패로 보고 회수한다. */
-const RUNNING_TIMEOUT_MINUTES = 10;
+/** 기기가 명령을 받아간 뒤 이 시간 안에 결과를 알리지 않으면 실패로 보고 회수한다. */
+const CLAIM_TIMEOUT_MINUTES = 10;
 
 /** 대시보드의 "펌프 테스트"로 만든 명령. 급수 이력이나 쿨다운에 반영하지 않는다. */
 const MANUAL_REASON_PREFIX = "manual";
 
 /** 수동 펌프 테스트의 하루 상한. 인증이 없는 라우트라 총량으로 피해를 묶어둔다. */
 const MANUAL_RUNS_PER_DAY = 5;
+
+const COMMAND_COLUMNS = `
+  id,
+  plant_id,
+  plant_name,
+  location,
+  pump_device_id,
+  watering_seconds,
+  reason,
+  status,
+  requested_at,
+  completed_at`;
 
 function isAuthorized(request: Request) {
   const expectedToken = process.env.DEVICE_API_TOKEN;
@@ -26,37 +38,51 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Invalid device token." }, { status: 401 });
   }
 
+  await ensureCommandTracking();
+
   const url = new URL(request.url);
   const deviceId = url.searchParams.get("device_id") ?? "pump-balcony-01";
 
   // 기기가 명령을 받아간 뒤 껐거나 Wi-Fi가 끊기면 그 명령이 running으로 영영 남는다.
   // 자동급수는 미완료 명령이 있으면 새 명령을 만들지 않으므로, 회수하지 않으면
-  // 해당 식물의 자동급수가 영구히 멈춘다.
-  await query(
-    `update pump_commands
-     set status = 'failed', completed_at = now()
-     where pump_device_id = $1
-       and status = 'running'
-       and requested_at < now() - make_interval(mins => $2::int)`,
-    [deviceId, RUNNING_TIMEOUT_MINUTES],
-  );
+  // 해당 기기의 자동급수가 영구히 멈춘다.
+  //
+  // 회수된 명령은 "펌프가 실제로 돌았을 가능성이 있는" 상태다. 완료 보고만 유실됐을 수
+  // 있으므로 쿨다운을 걸어둔다. 그러지 않으면 보고 한 번 놓칠 때마다 중복 급수가 난다.
+  await withTransaction(async (tx) => {
+    const reclaimed = await tx<{ id: string; plant_id: string | null; reason: string }>(
+      `update pump_commands
+       set status = 'failed', completed_at = now()
+       where pump_device_id = $1
+         and status = 'running'
+         and coalesce(claimed_at, requested_at) < now() - make_interval(mins => $2::int)
+       returning id, plant_id, reason`,
+      [deviceId, CLAIM_TIMEOUT_MINUTES],
+    );
 
+    for (const row of reclaimed) {
+      if (!row.plant_id || (row.reason ?? "").startsWith(MANUAL_REASON_PREFIX)) continue;
+      await tx(
+        `update plant_automation_configs
+         set last_run_at = now(), updated_at = now()
+         where plant_id = $1`,
+        [row.plant_id],
+      );
+    }
+  });
+
+  // 단순 조회로 내주면 기기가 결과 보고에 실패했을 때 같은 명령이 매 폴링마다 다시
+  // 나가 펌프가 반복 동작한다. 내주는 순간 running으로 넘겨 소유권을 이전한다.
   const commands = await query<PumpCommand>(
-    `select
-       id,
-       plant_id,
-       plant_name,
-       location,
-       pump_device_id,
-       watering_seconds,
-       reason,
-       status,
-       requested_at,
-       completed_at
-     from pump_commands
-     where pump_device_id = $1 and status = 'pending'
-     order by requested_at asc
-     limit 5`,
+    `update pump_commands
+     set status = 'running', claimed_at = now()
+     where id in (
+       select id from pump_commands
+       where pump_device_id = $1 and status = 'pending'
+       order by requested_at asc
+       limit 1
+     )
+     returning ${COMMAND_COLUMNS}`,
     [deviceId],
   );
 
@@ -69,7 +95,7 @@ export async function POST(request: Request) {
   const body = await request.json();
   const plantId = String(body.plant_id ?? "");
   const plantName = String(body.plant_name ?? "");
-  const location = String(body.location ?? "\uBCA0\uB780\uB2E4");
+  const location = String(body.location ?? "베란다");
   const pumpDeviceId = String(body.pump_device_id ?? "pump-balcony-01");
   // 펌웨어가 실제로 허용하는 상한(15초)에 맞춘다. 이보다 크게 보내도 잘려서 나간다.
   const wateringSeconds = Math.max(1, Math.min(15, Number(body.watering_seconds ?? 5)));
@@ -110,17 +136,7 @@ export async function POST(request: Request) {
     const commands = await query<PumpCommand>(
       `insert into pump_commands (plant_id, plant_name, location, pump_device_id, watering_seconds, reason)
        values ($1, $2, $3, $4, $5, 'manual dashboard pump test')
-       returning
-         id,
-         plant_id,
-         plant_name,
-         location,
-         pump_device_id,
-         watering_seconds,
-         reason,
-         status,
-         requested_at,
-         completed_at`,
+       returning ${COMMAND_COLUMNS}`,
       [plantId, plantName, location, pumpDeviceId, wateringSeconds],
     );
 
@@ -143,6 +159,8 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "Invalid device token." }, { status: 401 });
   }
 
+  await ensureCommandTracking();
+
   const body = await request.json();
   const commandId = String(body.command_id ?? "");
   const status = String(body.status ?? "completed");
@@ -161,17 +179,7 @@ export async function PATCH(request: Request) {
          completed_at = case when $2 in ('completed', 'cancelled', 'failed') then now() else completed_at end
        where c.id = $1
          and c.status <> 'completed'
-       returning
-         id,
-         plant_id,
-         plant_name,
-         location,
-         pump_device_id,
-         watering_seconds,
-         reason,
-         status,
-         requested_at,
-         completed_at`,
+       returning ${COMMAND_COLUMNS}`,
       [commandId, status],
     );
 
@@ -192,9 +200,9 @@ export async function PATCH(request: Request) {
     // DB 세션 타임존이 UTC라 current_date를 쓰면 한국 시간 오전 9시 이전 급수가
     // 전날 기록으로 남는다.
     await tx(
-      `insert into watering_logs (plant_id, plant_name, watered_at, memo, source)
-       values ($1, $2, (now() at time zone 'Asia/Seoul')::date, $3, 'automation')`,
-      [row.plant_id, row.plant_name, `auto watering ${row.watering_seconds}s`],
+      `insert into watering_logs (plant_id, plant_name, watered_at, memo, source, pump_command_id)
+       values ($1, $2, (now() at time zone 'Asia/Seoul')::date, $3, 'automation', $4)`,
+      [row.plant_id, row.plant_name, `auto watering ${row.watering_seconds}s`, row.id],
     );
 
     return row;

@@ -541,12 +541,34 @@ export default function Page() {
     }
   }
 
+  /**
+   * 사진 목록을 다시 불러온다. 실패를 별도 상태로 남겨야 "사진이 없음"과
+   * "불러오지 못함"이 화면에서 구분된다. 재시도 실패도 같은 경로를 타야 하므로
+   * 에러 처리를 호출부가 아니라 여기 한 곳에 둔다.
+   */
+  function reloadPhotos() {
+    return run("photos", async () => {
+      setPhotosError("");
+      try {
+        await loadPhotos();
+      } catch (error) {
+        setPhotosError(error instanceof Error ? error.message : "사진을 불러오지 못했습니다.");
+        throw error;
+      }
+    });
+  }
+
   async function loadPhotos() {
     // 목록 조회가 늦게 도착해 그 사이의 업로드·삭제를 되돌리지 않게 막는다.
     const seq = ++photoSeq.current;
     const mutationsAtStart = mutationCount.current;
+    const wasLoaded = photosLoaded;
     const data = await fetchJson<{ photos: PlantPhoto[] }>("/api/plant-photos");
-    if (seq !== photoSeq.current || mutationsAtStart !== mutationCount.current) return;
+
+    if (seq !== photoSeq.current) return;
+    // 아직 한 번도 못 불러온 상태라면 덮어쓸 로컬 데이터가 없다. 여기서 그냥 반환하면
+    // photosLoaded가 영영 false로 남아 사진 탭이 빈 화면에 고착된다.
+    if (wasLoaded && mutationsAtStart !== mutationCount.current) return;
 
     setPhotos(data.photos);
     setPhotosLoaded(true);
@@ -560,21 +582,20 @@ export default function Page() {
   // 사진 목록은 썸네일이라도 무거우므로 사진 탭을 처음 열 때만 가져온다.
   useEffect(() => {
     if (activeTab !== "photos" || photosLoaded) return;
-    run("photos", async () => {
-      try {
-        await loadPhotos();
-      } catch (error) {
-        // 빈 목록과 "불러오지 못함"은 다르다. 구분하지 않으면 사진이 없는 줄 안다.
-        setPhotosError(error instanceof Error ? error.message : "사진을 불러오지 못했습니다.");
-        throw error;
-      }
-    });
+    reloadPhotos();
   }, [activeTab, photosLoaded]);
 
-  // 촬영일 기본값은 사진 탭을 열 때의 오늘로 둔다.
+  // 촬영일 기본값은 오늘. 사용자가 직접 고른 날짜는 유지하되, 우리가 자동으로 넣은
+  // 값이라면 날짜가 바뀔 때 따라가야 한다. 안 그러면 자정을 넘긴 뒤 올린 사진이
+  // 어제 날짜로 저장된다.
+  const autoCapturedAt = useRef("");
   useEffect(() => {
     if (activeTab !== "photos") return;
-    setPhotoDraft((prev) => (prev.capturedAt ? prev : { ...prev, capturedAt: today }));
+    setPhotoDraft((prev) => {
+      if (prev.capturedAt && prev.capturedAt !== autoCapturedAt.current) return prev;
+      autoCapturedAt.current = today;
+      return { ...prev, capturedAt: today };
+    });
   }, [activeTab, today]);
 
   useEffect(() => {
@@ -773,7 +794,16 @@ export default function Page() {
   }
 
   async function cancelTodayWatering(plant: PlantModel) {
-    const todayLog = [...plant.logs].reverse().find((log) => log.watered_at.slice(0, 10) === today);
+    // watered_at은 날짜뿐이라 정렬만으로는 같은 날 안에서 순서가 정해지지 않는다.
+    // 그대로 두면 오늘 자동급수가 있고 사용자가 수동으로 한 번 더 준 경우,
+    // "취소"가 방금 누른 수동 기록이 아니라 오전의 자동급수 기록을 지웠다.
+    const todayLogs = plant.logs.filter((log) => log.watered_at.slice(0, 10) === today);
+    const todayLog = todayLogs.reduce<WateringLog | null>(
+      (latest, log) =>
+        !latest || String(log.created_at ?? "") > String(latest.created_at ?? "") ? log : latest,
+      null,
+    );
+
     if (!todayLog) {
       window.alert("오늘 취소할 급수 기록이 없습니다.");
       return;
@@ -839,6 +869,8 @@ export default function Page() {
       );
       setPendingPhoto(null);
       setPhotoDraft((prev) => ({ ...prev, note: "" }));
+      setPhotosError("");
+      setPhotosLoaded(true);
       if (photoInputRef.current) photoInputRef.current.value = "";
     });
   }
@@ -1644,13 +1676,7 @@ export default function Page() {
                 ) : photosError ? (
                   <div className="empty">
                     <p>{photosError}</p>
-                    <button
-                      className="btn sm"
-                      onClick={() => {
-                        setPhotosError("");
-                        run("photos", loadPhotos);
-                      }}
-                    >
+                    <button className="btn sm" onClick={() => reloadPhotos()}>
                       <RefreshCw size={14} /> 다시 시도
                     </button>
                   </div>

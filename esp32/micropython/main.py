@@ -106,14 +106,18 @@ def poll_pump_commands(relay):
         if response:
             response.close()
 
-    for command in commands:
+    # 한 번에 여러 건이 와도 한 건만 실행하고 다음 폴링까지 기다린다.
+    # 연달아 실행하면 같은 화분에 물이 몇 배로 나간다.
+    for command in commands[:1]:
         command_id = command.get("id")
-        seconds = int(command.get("watering_seconds", 5))
         if not command_id:
             continue
 
+        # 펌프가 버틸 수 있는 상한. 서버가 잘라 보내지만 기기에서도 한 번 더 막는다.
+        seconds = int(command.get("watering_seconds", 5))
+        seconds = max(1, min(15, seconds))
+
         print("Pump running:", command_id, seconds, "seconds")
-        patch_pump_command(command_id, "running")
         relay_write(relay, True)
         time.sleep(seconds)
         relay_write(relay, False)

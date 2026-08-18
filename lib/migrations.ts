@@ -20,6 +20,22 @@ function once(run: () => Promise<void>) {
 /** 서버리스에서는 인스턴스가 여러 개 동시에 뜬다. DDL은 한 번에 하나만 돌게 직렬화한다. */
 const LOCK_KEY = 918273645;
 
+/**
+ * 명령의 소유권과 급수 기록의 출처를 추적하기 위한 컬럼.
+ * - pump_commands.claimed_at: 기기가 명령을 실제로 받아간 시각.
+ *   이게 없으면 "발행됐지만 아직 아무도 안 가져간 명령"과 "가져갔는데 결과 보고가 없는 명령"을
+ *   구분할 수 없어, 회수 기준이 발행 시각이 되어버린다.
+ * - watering_logs.pump_command_id: 어떤 자동급수 실행에서 생긴 기록인지.
+ *   이게 없으면 기록을 취소할 때 어떤 명령을 되돌려야 하는지 날짜로 추측해야 한다.
+ */
+export const ensureCommandTracking = once(async () => {
+  await query("alter table pump_commands add column if not exists claimed_at timestamptz");
+  await query(
+    `alter table watering_logs
+     add column if not exists pump_command_id uuid references pump_commands(id) on delete set null`,
+  );
+});
+
 /** 펌프 하드웨어의 실제 상한이 15초다. DB 제약이 30초로 남아 있으면 맞춰준다. */
 export const ensureWateringSecondsLimit = once(async () => {
   const applied = await query<{ ok: boolean }>(

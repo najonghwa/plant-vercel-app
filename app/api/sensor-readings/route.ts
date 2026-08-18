@@ -128,46 +128,62 @@ export async function POST(request: Request) {
     ],
   );
 
-  const commands = await query(
-    `insert into pump_commands (plant_id, plant_name, location, pump_device_id, watering_seconds, reason)
-     select
-       p.id,
-       p.name,
-       $1,
-       a.pump_device_id,
-       a.watering_seconds,
-       'soil moisture ' || $2::text || '% below threshold ' || a.moisture_min_pct::text || '%'
-     from plants p
-     join plant_automation_configs a on a.plant_id = p.id
-     join plant_sensor_configs s on s.plant_id = p.id
-     where
-       a.enabled = true
-       and s.soil_sensor_enabled = true
-       and s.soil_sensor_device_id = $3
-       and $2::numeric < a.moisture_min_pct
-       and (
-         a.last_run_at is null
-         or a.last_run_at < now() - make_interval(hours => a.cooldown_hours)
-       )
-       and (
-         select count(*)
-         from pump_commands c
-         where
-           c.plant_id = p.id
-           -- DB 세션이 UTC라 current_date를 쓰면 한국 시간 오전 9시 이전이 전날로 잡혀
-           -- '하루 최대'가 실제 하루와 어긋난다.
-           and (c.requested_at at time zone 'Asia/Seoul')::date
-               = (now() at time zone 'Asia/Seoul')::date
-           and c.status in ('pending', 'running', 'completed')
-       ) < a.max_runs_per_day
-       and not exists (
-         select 1
-         from pump_commands pending
-         where pending.plant_id = p.id and pending.status in ('pending', 'running')
-       )
-     returning id, plant_name, pump_device_id, watering_seconds, reason, status, requested_at`,
-    [location, soilMoisture, deviceId],
-  );
+  // 자동급수 명령 생성은 실패해도 센서값 저장까지 되돌리면 안 된다.
+  // 예전에는 명령 INSERT가 유니크 제약에 걸리면 라우트 전체가 500이 되어,
+  // 값은 저장됐는데 기기는 실패로 알고 재전송하는 상태가 됐다.
+  let commands: Record<string, unknown>[] = [];
+  try {
+    commands = await query(
+      `insert into pump_commands (plant_id, plant_name, location, pump_device_id, watering_seconds, reason)
+       select distinct on (a.pump_device_id)
+         p.id,
+         p.name,
+         $1,
+         a.pump_device_id,
+         a.watering_seconds,
+         'soil moisture ' || $2::text || '% below threshold ' || a.moisture_min_pct::text || '%'
+       from plants p
+       join plant_automation_configs a on a.plant_id = p.id
+       join plant_sensor_configs s on s.plant_id = p.id
+       where
+         a.enabled = true
+         and s.soil_sensor_enabled = true
+         and s.soil_sensor_device_id = $3
+         and $2::numeric < a.moisture_min_pct
+         and (
+           a.last_run_at is null
+           or a.last_run_at < now() - make_interval(hours => a.cooldown_hours)
+         )
+         and (
+           select count(*)
+           from pump_commands c
+           where
+             -- 물을 실제로 내보내는 주체는 펌프다. 같은 펌프를 여러 식물이 공유하면
+             -- 식물별로 세는 순간 상한이 우회된다(A가 상한을 채워도 B로 또 나간다).
+             c.pump_device_id = a.pump_device_id
+             -- DB 세션이 UTC라 current_date를 쓰면 한국 시간 오전 9시 이전이 전날로 잡혀
+             -- '하루 최대'가 실제 하루와 어긋난다.
+             and (c.requested_at at time zone 'Asia/Seoul')::date
+                 = (now() at time zone 'Asia/Seoul')::date
+             -- 회수된(failed) 시도도 실제로 물이 나갔을 수 있으므로 횟수를 소모한다.
+             and c.status in ('pending', 'running', 'completed', 'failed')
+         ) < a.max_runs_per_day
+         -- 한 펌프는 한 번에 하나만 돌 수 있다. 같은 펌프를 여러 식물이 공유하므로
+         -- 식물이 아니라 기기 단위로 미처리 명령을 확인해야 유니크 인덱스와 일치한다.
+         and not exists (
+           select 1
+           from pump_commands pending
+           where pending.pump_device_id = a.pump_device_id
+             and pending.status in ('pending', 'running')
+         )
+       order by a.pump_device_id, p.name
+       on conflict do nothing
+       returning id, plant_name, pump_device_id, watering_seconds, reason, status, requested_at`,
+      [location, soilMoisture, deviceId],
+    );
+  } catch (error) {
+    console.error("pump command creation skipped:", error);
+  }
 
   const automationCandidates = await query(
     `select

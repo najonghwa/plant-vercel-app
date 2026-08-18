@@ -83,8 +83,17 @@ create table if not exists pump_commands (
   reason text not null default '',
   status text not null default 'pending' check (status in ('pending', 'running', 'completed', 'cancelled', 'failed')),
   requested_at timestamptz not null default now(),
+  -- 기기가 실제로 명령을 받아간 시각. 발행만 되고 아무도 안 가져간 명령과 구분한다.
+  claimed_at timestamptz,
   completed_at timestamptz
 );
+
+alter table pump_commands add column if not exists claimed_at timestamptz;
+
+-- 어떤 자동급수 실행에서 생긴 기록인지. 기록을 취소할 때 되돌릴 명령을 날짜로
+-- 추측하지 않고 정확히 짚기 위해 필요하다.
+alter table watering_logs
+  add column if not exists pump_command_id uuid references pump_commands(id) on delete set null;
 
 create table if not exists day_memos (
   id uuid primary key default gen_random_uuid(),
