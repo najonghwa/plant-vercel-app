@@ -64,6 +64,22 @@ export const ensureWateringSecondsLimit = once(async () => {
 
     // 기기별로 처리 중인 명령은 하나뿐이어야 한다. 코드로만 검사하면 동시 요청 두 건이
     // 같은 순간에 통과해 연속 급수가 나간다. DB가 막게 한다.
+    //
+    // 다만 지금까지는 제한이 없었으므로 이미 같은 기기에 미처리 명령이 여러 건 쌓여
+    // 있을 수 있다. 그대로 두면 인덱스 생성이 실패하고 트랜잭션 전체가 롤백돼
+    // 자동급수 설정 저장이 계속 실패한다. 가장 최근 1건만 남기고 정리한다.
+    await tx(
+      `update pump_commands
+       set status = 'cancelled', completed_at = now()
+       where status in ('pending', 'running')
+         and id not in (
+           select distinct on (pump_device_id) id
+           from pump_commands
+           where status in ('pending', 'running')
+           order by pump_device_id, requested_at desc
+         )`,
+    );
+
     await tx(
       `create unique index if not exists pump_commands_one_open_per_device
        on pump_commands (pump_device_id)

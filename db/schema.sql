@@ -137,6 +137,17 @@ alter table pump_commands add constraint pump_commands_watering_seconds_check
 
 -- 기기당 처리 중인 명령은 하나뿐이어야 한다. 코드로만 검사하면 동시 요청 두 건이
 -- 같은 순간에 통과해 연속 급수가 나간다.
+-- 이미 쌓여 있는 미처리 명령은 가장 최근 1건만 남기고 정리해야 인덱스가 만들어진다.
+update pump_commands
+set status = 'cancelled', completed_at = now()
+where status in ('pending', 'running')
+  and id not in (
+    select distinct on (pump_device_id) id
+    from pump_commands
+    where status in ('pending', 'running')
+    order by pump_device_id, requested_at desc
+  );
+
 create unique index if not exists pump_commands_one_open_per_device
   on pump_commands (pump_device_id)
   where status in ('pending', 'running');
