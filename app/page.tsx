@@ -456,6 +456,10 @@ export default function Page() {
   const [query, setQuery] = useState("");
   const [location, setLocation] = useState<"전체" | "거실" | "베란다">("전체");
   const [sort, setSort] = useState<"priority" | "name">("priority");
+  // 대시보드에서 '물주기'를 누를 때 기록될 날짜. 기본은 오늘이고, 어제 준 것을
+  // 뒤늦게 기록할 때 캘린더 탭까지 들어가지 않아도 되게 한다.
+  // 캘린더의 selectedDate와는 따로 둔다. 같이 쓰면 한쪽을 바꿀 때 다른 쪽이 끌려간다.
+  const [waterDate, setWaterDate] = useState(today);
   const [activeTab, setActiveTab] = useState<
     "dashboard" | "status" | "analysis" | "calendar" | "memos" | "photos" | "soil" | "add"
   >("dashboard");
@@ -612,6 +616,7 @@ export default function Page() {
     previousToday.current = today;
 
     setSelectedDate((prev) => (prev === before ? today : prev));
+    setWaterDate((prev) => (prev === before ? today : prev));
     setCalendarMonth((prev) => (prev === before.slice(0, 7) ? today.slice(0, 7) : prev));
   }, [today]);
 
@@ -777,7 +782,11 @@ export default function Page() {
     await run(`water:${plant.id}`, async () => {
       const data = await fetchJson<{ log: WateringLog }>("/api/watering-logs", {
         method: "POST",
-        body: JSON.stringify({ plant_name: plant.name, watered_at: today, memo: "대시보드 물주기" }),
+        body: JSON.stringify({
+          plant_name: plant.name,
+          watered_at: waterDate,
+          memo: waterDate === today ? "대시보드 물주기" : `대시보드 물주기 (${waterDate} 기록)`,
+        }),
       });
       setLogs((prev) => [data.log, ...prev]);
     });
@@ -793,22 +802,22 @@ export default function Page() {
     });
   }
 
-  async function cancelTodayWatering(plant: PlantModel) {
+  async function cancelWateringOn(plant: PlantModel, date: string) {
     // watered_at은 날짜뿐이라 정렬만으로는 같은 날 안에서 순서가 정해지지 않는다.
-    // 그대로 두면 오늘 자동급수가 있고 사용자가 수동으로 한 번 더 준 경우,
-    // "취소"가 방금 누른 수동 기록이 아니라 오전의 자동급수 기록을 지웠다.
-    const todayLogs = plant.logs.filter((log) => log.watered_at.slice(0, 10) === today);
-    const todayLog = todayLogs.reduce<WateringLog | null>(
+    // 그대로 두면 자동급수가 있고 사용자가 수동으로 한 번 더 준 경우,
+    // "취소"가 방금 누른 수동 기록이 아니라 이른 시각의 자동급수 기록을 지웠다.
+    const sameDayLogs = plant.logs.filter((log) => log.watered_at.slice(0, 10) === date);
+    const target = sameDayLogs.reduce<WateringLog | null>(
       (latest, log) =>
         !latest || String(log.created_at ?? "") > String(latest.created_at ?? "") ? log : latest,
       null,
     );
 
-    if (!todayLog) {
-      window.alert("오늘 취소할 급수 기록이 없습니다.");
+    if (!target) {
+      window.alert(`${date}에 취소할 급수 기록이 없습니다.`);
       return;
     }
-    await deleteWateringLog(todayLog);
+    await deleteWateringLog(target);
   }
 
   async function onPhotoFileChange(file: File | null) {
@@ -1032,6 +1041,7 @@ export default function Page() {
     });
   }
 
+  const yesterday = addDays(today, -1);
   const analysisGaps = selectedPlant ? wateringGaps(selectedPlant.logs) : [];
   const maxGap = Math.max(1, ...analysisGaps.map((item) => item.gap));
 
@@ -1175,6 +1185,41 @@ export default function Page() {
                 </div>
               </section>
 
+              <div className={`water-date ${waterDate === today ? "" : "past"}`}>
+                <div className="water-date-row">
+                  <span className="meta">물 준 날짜</span>
+                  <div className="water-date-controls">
+                    <button
+                      type="button"
+                      className={`daychip ${waterDate === today ? "on" : ""}`}
+                      onClick={() => setWaterDate(today)}
+                    >
+                      오늘
+                    </button>
+                    <button
+                      type="button"
+                      className={`daychip ${waterDate === yesterday ? "on" : ""}`}
+                      onClick={() => setWaterDate(yesterday)}
+                    >
+                      어제
+                    </button>
+                    <input
+                      className="input"
+                      type="date"
+                      max={today}
+                      value={waterDate}
+                      onChange={(event) => setWaterDate(event.target.value || today)}
+                    />
+                  </div>
+                </div>
+                {waterDate !== today && (
+                  <p className="water-date-note">
+                    <AlertTriangle size={14} />
+                    지금 누르는 &lsquo;물주기&rsquo;는 <strong>{waterDate}</strong> 기록으로 저장됩니다.
+                  </p>
+                )}
+              </div>
+
               <div className="filters">
                 <label>
                   <span className="meta">검색</span>
@@ -1208,7 +1253,8 @@ export default function Page() {
                 <div className="plant-grid">
                   {filtered.map((plant) => {
                     const status = statusFor(plant.dday);
-                    const wateredTodayThis = plant.logs.some((log) => log.watered_at.slice(0, 10) === today);
+                    const wateredOnDate = plant.logs.some((log) => log.watered_at.slice(0, 10) === waterDate);
+                    const dateLabel = waterDate === today ? "" : ` ${waterDate.slice(5).replace("-", "/")}`;
                     const daysSince = plant.lastWatered ? dateDiff(today, plant.lastWatered) : null;
                     return (
                       <article className={`pcard tone-${status.className}`} key={plant.id}>
@@ -1260,13 +1306,13 @@ export default function Page() {
                         </div>
 
                         <div className="pcard-actions">
-                          {wateredTodayThis ? (
+                          {wateredOnDate ? (
                             <button
                               className="btn sm"
                               disabled={isBusy(`water:${plant.id}`)}
-                              onClick={() => cancelTodayWatering(plant)}
+                              onClick={() => cancelWateringOn(plant, waterDate)}
                             >
-                              <Droplets size={14} /> 물주기 취소
+                              <Droplets size={14} />{dateLabel} 물주기 취소
                             </button>
                           ) : (
                             <button
@@ -1274,7 +1320,7 @@ export default function Page() {
                               disabled={isBusy(`water:${plant.id}`)}
                               onClick={() => quickWater(plant)}
                             >
-                              <Droplets size={14} /> 물주기
+                              <Droplets size={14} />{dateLabel} 물주기
                             </button>
                           )}
                           <button

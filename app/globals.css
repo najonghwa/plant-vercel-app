@@ -397,6 +397,78 @@ h1 {
   box-shadow: 0 0 0 3px rgba(47, 125, 79, .12);
 }
 
+/* ── 기록 날짜 선택 ───────────────────── */
+.water-date {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  padding: 12px 14px;
+}
+
+/* 지난 날짜를 고른 상태는 한눈에 보여야 한다. 모르고 기록하면 D-day가 틀어진다. */
+.water-date.past {
+  border-color: #f0d8bd;
+  background: var(--amber-soft);
+}
+
+.water-date-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.water-date-controls {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.water-date-controls .input {
+  width: auto;
+  min-width: 150px;
+  height: 38px;
+}
+
+.daychip {
+  height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  padding: 0 14px;
+  color: #54584f;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.daychip:hover {
+  background: #f3f4f0;
+}
+
+.daychip.on {
+  border-color: var(--green);
+  background: var(--green);
+  color: #fff;
+}
+
+.water-date-note {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  margin: 0;
+  color: var(--amber);
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.water-date-note svg {
+  flex: none;
+}
+
 /* ── 식물 카드 (컴팩트) ──────────────── */
 .plant-grid {
   display: grid;
@@ -1559,6 +1631,16 @@ h1 {
 
   .photo-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* 좁은 화면에서는 날짜 입력이 한 줄을 다 쓰게 둔다 */
+  .water-date-controls {
+    width: 100%;
+  }
+
+  .water-date-controls .input {
+    flex: 1 1 auto;
+    min-width: 0;
   }
 
   .photo-viewer {
