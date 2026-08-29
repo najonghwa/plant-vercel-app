@@ -1,6 +1,28 @@
 import { NextResponse } from "next/server";
-import { query } from "@/lib/db";
+import { query, queryOne, withTransaction } from "@/lib/db";
+import { ensureCommandTracking, ensureWateringSecondsLimit } from "@/lib/migrations";
 import type { PumpCommand } from "@/lib/types";
+
+/** 기기가 명령을 받아간 뒤 이 시간 안에 결과를 알리지 않으면 실패로 보고 회수한다. */
+const CLAIM_TIMEOUT_MINUTES = 10;
+
+/** 대시보드의 "펌프 테스트"로 만든 명령. 급수 이력이나 쿨다운에 반영하지 않는다. */
+const MANUAL_REASON_PREFIX = "manual";
+
+/** 수동 펌프 테스트의 하루 상한. 인증이 없는 라우트라 총량으로 피해를 묶어둔다. */
+const MANUAL_RUNS_PER_DAY = 5;
+
+const COMMAND_COLUMNS = `
+  id,
+  plant_id,
+  plant_name,
+  location,
+  pump_device_id,
+  watering_seconds,
+  reason,
+  status,
+  requested_at,
+  completed_at`;
 
 function isAuthorized(request: Request) {
   const expectedToken = process.env.DEVICE_API_TOKEN;
@@ -16,25 +38,51 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Invalid device token." }, { status: 401 });
   }
 
+  await ensureCommandTracking();
+
   const url = new URL(request.url);
   const deviceId = url.searchParams.get("device_id") ?? "pump-balcony-01";
 
+  // 기기가 명령을 받아간 뒤 껐거나 Wi-Fi가 끊기면 그 명령이 running으로 영영 남는다.
+  // 자동급수는 미완료 명령이 있으면 새 명령을 만들지 않으므로, 회수하지 않으면
+  // 해당 기기의 자동급수가 영구히 멈춘다.
+  //
+  // 회수된 명령은 "펌프가 실제로 돌았을 가능성이 있는" 상태다. 완료 보고만 유실됐을 수
+  // 있으므로 쿨다운을 걸어둔다. 그러지 않으면 보고 한 번 놓칠 때마다 중복 급수가 난다.
+  await withTransaction(async (tx) => {
+    const reclaimed = await tx<{ id: string; plant_id: string | null; reason: string }>(
+      `update pump_commands
+       set status = 'failed', completed_at = now()
+       where pump_device_id = $1
+         and status = 'running'
+         and coalesce(claimed_at, requested_at) < now() - make_interval(mins => $2::int)
+       returning id, plant_id, reason`,
+      [deviceId, CLAIM_TIMEOUT_MINUTES],
+    );
+
+    for (const row of reclaimed) {
+      if (!row.plant_id || (row.reason ?? "").startsWith(MANUAL_REASON_PREFIX)) continue;
+      await tx(
+        `update plant_automation_configs
+         set last_run_at = now(), updated_at = now()
+         where plant_id = $1`,
+        [row.plant_id],
+      );
+    }
+  });
+
+  // 단순 조회로 내주면 기기가 결과 보고에 실패했을 때 같은 명령이 매 폴링마다 다시
+  // 나가 펌프가 반복 동작한다. 내주는 순간 running으로 넘겨 소유권을 이전한다.
   const commands = await query<PumpCommand>(
-    `select
-       id,
-       plant_id,
-       plant_name,
-       location,
-       pump_device_id,
-       watering_seconds,
-       reason,
-       status,
-       requested_at,
-       completed_at
-     from pump_commands
-     where pump_device_id = $1 and status = 'pending'
-     order by requested_at asc
-     limit 5`,
+    `update pump_commands
+     set status = 'running', claimed_at = now()
+     where id in (
+       select id from pump_commands
+       where pump_device_id = $1 and status = 'pending'
+       order by requested_at asc
+       limit 1
+     )
+     returning ${COMMAND_COLUMNS}`,
     [deviceId],
   );
 
@@ -42,41 +90,76 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  await ensureWateringSecondsLimit();
+
   const body = await request.json();
   const plantId = String(body.plant_id ?? "");
   const plantName = String(body.plant_name ?? "");
-  const location = String(body.location ?? "\uBCA0\uB780\uB2E4");
+  const location = String(body.location ?? "베란다");
   const pumpDeviceId = String(body.pump_device_id ?? "pump-balcony-01");
-  const wateringSeconds = Math.max(1, Math.min(20, Number(body.watering_seconds ?? 5)));
+  // 펌웨어가 실제로 허용하는 상한(15초)에 맞춘다. 이보다 크게 보내도 잘려서 나간다.
+  const wateringSeconds = Math.max(1, Math.min(15, Number(body.watering_seconds ?? 5)));
 
   if (!plantId || !plantName) {
     return NextResponse.json({ error: "plant_id and plant_name are required." }, { status: 400 });
   }
 
-  const commands = await query<PumpCommand>(
-    `insert into pump_commands (plant_id, plant_name, location, pump_device_id, watering_seconds, reason)
-     values ($1, $2, $3, $4, $5, 'manual dashboard pump test')
-     returning
-       id,
-       plant_id,
-       plant_name,
-       location,
-       pump_device_id,
-       watering_seconds,
-       reason,
-       status,
-       requested_at,
-       completed_at`,
-    [plantId, plantName, location, pumpDeviceId, wateringSeconds],
-  );
+  if (!["거실", "베란다"].includes(location)) {
+    return NextResponse.json({ error: "location은 거실 또는 베란다만 가능합니다." }, { status: 400 });
+  }
 
-  return NextResponse.json({ command: commands[0] }, { status: 201 });
+  const plant = await queryOne<{ id: string }>("select id from plants where id = $1", [plantId]);
+  if (!plant) {
+    return NextResponse.json({ error: "식물을 찾을 수 없습니다." }, { status: 404 });
+  }
+
+  // 이 라우트는 대시보드가 브라우저에서 직접 부르므로 기기 토큰을 요구할 수 없다.
+  // 인증이 없는 상태에서 실제로 물이 나가는 동작이므로, 하루에 나갈 수 있는 총량을
+  // 제한해 무한 반복 급수만은 막는다.
+  const todayRuns = await queryOne<{ count: number }>(
+    `select count(*)::int as count
+     from pump_commands
+     where pump_device_id = $1
+       and reason like 'manual%'
+       and (requested_at at time zone 'Asia/Seoul')::date = (now() at time zone 'Asia/Seoul')::date
+       and status in ('pending', 'running', 'completed')`,
+    [pumpDeviceId],
+  );
+  if ((todayRuns?.count ?? 0) >= MANUAL_RUNS_PER_DAY) {
+    return NextResponse.json(
+      { error: `펌프 테스트는 하루 ${MANUAL_RUNS_PER_DAY}회까지만 가능합니다.` },
+      { status: 429 },
+    );
+  }
+
+  try {
+    const commands = await query<PumpCommand>(
+      `insert into pump_commands (plant_id, plant_name, location, pump_device_id, watering_seconds, reason)
+       values ($1, $2, $3, $4, $5, 'manual dashboard pump test')
+       returning ${COMMAND_COLUMNS}`,
+      [plantId, plantName, location, pumpDeviceId, wateringSeconds],
+    );
+
+    return NextResponse.json({ command: commands[0] }, { status: 201 });
+  } catch (error) {
+    // 기기당 미처리 명령 1건만 허용하는 유니크 인덱스. 코드로 미리 검사하면
+    // 동시 요청 두 건이 같은 순간에 통과할 수 있어 DB가 최종 판정을 한다.
+    if ((error as { code?: string }).code === "23505") {
+      return NextResponse.json(
+        { error: "아직 처리되지 않은 펌프 명령이 있습니다. 완료된 뒤 다시 시도해주세요." },
+        { status: 409 },
+      );
+    }
+    throw error;
+  }
 }
 
 export async function PATCH(request: Request) {
   if (!isAuthorized(request)) {
     return NextResponse.json({ error: "Invalid device token." }, { status: 401 });
   }
+
+  await ensureCommandTracking();
 
   const body = await request.json();
   const commandId = String(body.command_id ?? "");
@@ -86,41 +169,44 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "command_id and a valid status are required." }, { status: 400 });
   }
 
-  const commands = await query<PumpCommand>(
-    `update pump_commands c
-     set
-       status = $2,
-       completed_at = case when $2 in ('completed', 'cancelled', 'failed') then now() else completed_at end
-     where c.id = $1
-       and c.status <> 'completed'
-     returning
-       id,
-       plant_id,
-       plant_name,
-       location,
-       pump_device_id,
-       watering_seconds,
-       reason,
-       status,
-       requested_at,
-       completed_at`,
-    [commandId, status],
-  );
+  // 명령 상태 갱신과 그에 딸린 급수 이력/쿨다운은 한 덩어리다.
+  // 따로 실행하면 중간에 실패했을 때 "물은 줬는데 기록이 없는" 상태가 남는다.
+  const command = await withTransaction(async (tx) => {
+    const updated = await tx<PumpCommand>(
+      `update pump_commands c
+       set
+         status = $2,
+         completed_at = case when $2 in ('completed', 'cancelled', 'failed') then now() else completed_at end
+       where c.id = $1
+         and c.status <> 'completed'
+       returning ${COMMAND_COLUMNS}`,
+      [commandId, status],
+    );
 
-  if (commands[0]?.status === "completed" && commands[0].plant_id) {
-    await query(
+    const row = updated[0];
+    if (!row || row.status !== "completed" || !row.plant_id) return row ?? null;
+
+    // 대시보드에서 누른 펌프 테스트까지 자동급수로 기록하면, 테스트 한 번에
+    // 쿨다운이 걸려 정작 필요한 자동급수가 막힌다.
+    if ((row.reason ?? "").startsWith(MANUAL_REASON_PREFIX)) return row;
+
+    await tx(
       `update plant_automation_configs
        set last_run_at = now(), updated_at = now()
        where plant_id = $1`,
-      [commands[0].plant_id],
+      [row.plant_id],
     );
 
-    await query(
-      `insert into watering_logs (plant_id, plant_name, watered_at, memo, source)
-       values ($1, $2, current_date, $3, 'automation')`,
-      [commands[0].plant_id, commands[0].plant_name, `auto watering ${commands[0].watering_seconds}s`],
+    // DB 세션 타임존이 UTC라 current_date를 쓰면 한국 시간 오전 9시 이전 급수가
+    // 전날 기록으로 남는다.
+    await tx(
+      `insert into watering_logs (plant_id, plant_name, watered_at, memo, source, pump_command_id)
+       values ($1, $2, (now() at time zone 'Asia/Seoul')::date, $3, 'automation', $4)`,
+      [row.plant_id, row.plant_name, `auto watering ${row.watering_seconds}s`, row.id],
     );
-  }
 
-  return NextResponse.json({ command: commands[0] ?? null });
+    return row;
+  });
+
+  return NextResponse.json({ command: command ?? null });
 }

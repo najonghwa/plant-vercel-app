@@ -1,7 +1,9 @@
 .next
 node_modules
+tsconfig.tsbuildinfo
 .env
 .env.local
 *.log
 esp32/micropython/secrets.py
 esp32/platformio-balcony/include/config.h
+next-env.d.ts
