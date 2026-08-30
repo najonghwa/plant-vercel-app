@@ -1360,6 +1360,21 @@ h1 {
   object-fit: cover;
 }
 
+/* 사진 없이 메모만 있는 기록도 카드 모양을 유지한다. */
+.photo-thumb.note-only {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--line);
+  background: #f8f8f5;
+  color: var(--muted);
+}
+
+.muted-name {
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .photo-missing {
   display: flex;
   width: 100%;

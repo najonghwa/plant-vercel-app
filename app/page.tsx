@@ -466,7 +466,7 @@ export default function Page() {
   // 캘린더의 selectedDate와는 따로 둔다. 같이 쓰면 한쪽을 바꿀 때 다른 쪽이 끌려간다.
   const [waterDate, setWaterDate] = useState(today);
   const [activeTab, setActiveTab] = useState<
-    "dashboard" | "status" | "analysis" | "calendar" | "memos" | "photos" | "soil" | "add"
+    "dashboard" | "status" | "analysis" | "calendar" | "photos" | "soil" | "add"
   >("dashboard");
   const [selectedPlantId, setSelectedPlantId] = useState("");
   const [settingsPlantId, setSettingsPlantId] = useState<string | null>(null);
@@ -893,8 +893,8 @@ export default function Page() {
         );
 
       setEntries((prev) => sortEntries([data.photo, ...prev]));
-      // 전체 갤러리에도 반영한다(사진이 있는 기록만 갤러리에 뜬다).
-      if (data.photo.has_image) setPhotos((prev) => sortEntries([data.photo, ...prev]));
+      // 기록 탭의 모아보기에도 반영한다.
+      setPhotos((prev) => sortEntries([data.photo, ...prev]));
       setEntryDraft({ note: "", capturedAt: capturedAt });
       setPendingEntryPhoto(null);
       if (entryInputRef.current) entryInputRef.current.value = "";
@@ -933,12 +933,9 @@ export default function Page() {
   async function submitPhoto(event: FormEvent) {
     event.preventDefault();
 
-    if (!photoDraft.plantId) {
-      window.alert("어떤 식물의 사진인지 골라주세요.");
-      return;
-    }
-    if (!pendingPhoto) {
-      window.alert("사진을 먼저 선택해주세요.");
+    const note = photoDraft.note.trim();
+    if (!pendingPhoto && !note) {
+      window.alert("메모를 쓰거나 사진을 넣어주세요.");
       return;
     }
 
@@ -952,10 +949,10 @@ export default function Page() {
       const data = await fetchJson<{ photo: PlantPhoto }>("/api/plant-photos", {
         method: "POST",
         body: JSON.stringify({
-          plant_id: photoDraft.plantId,
-          image_url: pendingPhoto.image,
-          thumb_url: pendingPhoto.thumb,
-          note: photoDraft.note.trim(),
+          plant_id: photoDraft.plantId || null,
+          image_url: pendingPhoto?.image ?? null,
+          thumb_url: pendingPhoto?.thumb ?? null,
+          note,
           captured_at: capturedAt,
         }),
       });
@@ -969,6 +966,17 @@ export default function Page() {
             String(b.created_at).localeCompare(String(a.created_at)),
         ),
       );
+      // 지금 분석 화면에서 보고 있는 식물의 기록이면 거기에도 바로 반영한다.
+      if (data.photo.plant_id && data.photo.plant_id === entriesPlantId) {
+        setEntries((prev) =>
+          [data.photo, ...prev].sort(
+            (a, b) =>
+              b.captured_at.localeCompare(a.captured_at) ||
+              String(b.created_at).localeCompare(String(a.created_at)),
+          ),
+        );
+      }
+
       setPendingPhoto(null);
       setPhotoDraft((prev) => ({ ...prev, note: "" }));
       setPhotosError("");
@@ -1135,8 +1143,6 @@ export default function Page() {
   }
 
   const yesterday = addDays(today, -1);
-  // 사진 없이 메모만 남긴 기록은 갤러리에 넣지 않는다.
-  const photoGallery = photos.filter((photo) => photo.has_image && photo.thumb_url);
   // 분석 탭에서 보고 있는 식물의 기록을 불러온다.
   useEffect(() => {
     if (activeTab !== "analysis" || !selectedPlant) return;
@@ -1187,11 +1193,8 @@ export default function Page() {
           <button className={`navitem ${activeTab === "calendar" ? "active" : ""}`} onClick={() => setActiveTab("calendar")}>
             <CalendarDays size={17} /> 급수 캘린더
           </button>
-          <button className={`navitem ${activeTab === "memos" ? "active" : ""}`} onClick={() => setActiveTab("memos")}>
-            <StickyNote size={17} /> 메모
-          </button>
           <button className={`navitem ${activeTab === "photos" ? "active" : ""}`} onClick={() => setActiveTab("photos")}>
-            <Camera size={17} /> 사진
+            <StickyNote size={17} /> 기록
           </button>
           <button className={`navitem ${activeTab === "soil" ? "active" : ""}`} onClick={() => setActiveTab("soil")}>
             <Gauge size={17} /> 토양수분
@@ -1824,47 +1827,110 @@ export default function Page() {
             </section>
           )}
 
-          {activeTab === "memos" && (
-            <section className="tab-page">
-              <div className="panel">
-                <div className="panel-title">
-                  <h2><StickyNote size={18} /> 메모 모아보기</h2>
-                  <span className="meta">{memos.length}건</span>
-                </div>
-                {memos.length ? (
-                  <div className="calendar-items log-list">
-                    {memos.map((memo) => (
-                      <div className="calendar-item memo-item" key={memo.id}>
-                        <div>
-                          <strong>{memo.entry_date}</strong>
-                          <span>{memo.content}</span>
-                        </div>
-                        <button className="icon-btn danger" onClick={() => deleteDayMemo(memo)} title="메모 삭제">
-                          <Trash2 size={15} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="empty">아직 메모가 없습니다. 급수 캘린더에서 날짜를 고르고 메모를 적어보세요.</div>
-                )}
-              </div>
-            </section>
-          )}
-
           {activeTab === "photos" && (
             <section className="tab-page photo-layout">
               <div className="panel">
                 <div className="panel-title">
-                  <h2><Camera size={18} /> 사진 모아보기</h2>
-                  <span className="meta">{photoGallery.length}장</span>
+                  <h2><Plus size={18} /> 기록 남기기</h2>
+                  <span className="meta">사진이든 메모든</span>
                 </div>
-                <p className="hint">
-                  사진은 각 식물의 기록에서 올립니다. 관리판에서 식물 이름을 누르거나 &lsquo;식물 분석&rsquo;에서
-                  식물을 고르면 그 식물의 기록에 날짜·메모와 함께 남길 수 있습니다.
-                </p>
+
+                <form className="form-grid photo-form" onSubmit={submitPhoto}>
+                  <label className="field">
+                    <span className="meta">식물 (선택)</span>
+                    <select
+                      className="select"
+                      value={photoDraft.plantId}
+                      onChange={(event) => setPhotoDraft({ ...photoDraft, plantId: event.target.value })}
+                    >
+                      <option value="">특정 식물 아님 (전체 사진 · 일반 메모)</option>
+                      {model.map((plant) => (
+                        <option key={plant.id} value={plant.id}>{plant.name}</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="field">
+                    <span className="meta">날짜</span>
+                    <input
+                      className="input"
+                      type="date"
+                      max={today}
+                      value={photoDraft.capturedAt || today}
+                      onChange={(event) =>
+                        setPhotoDraft({ ...photoDraft, capturedAt: event.target.value || today })
+                      }
+                    />
+                  </label>
+
+                  <label className="field photo-picker">
+                    <span className="meta">사진 (선택)</span>
+                    <input
+                      ref={photoInputRef}
+                      className="input file-input"
+                      type="file"
+                      accept="image/*"
+                      disabled={isBusy("photo-prepare") || isBusy("photo-upload")}
+                      onChange={(event) => onPhotoFileChange(event.target.files?.[0] ?? null)}
+                    />
+                    <span className="hint">
+                      폰에서 열면 카메라로 바로 찍을 수 있어요. 올리기 전에 자동으로 크기를 줄입니다.
+                      사진 없이 메모만 남겨도 됩니다.
+                    </span>
+                  </label>
+
+                  <label className="field photo-picker">
+                    <span className="meta">메모</span>
+                    <textarea
+                      className="input textarea"
+                      placeholder="오늘 베란다 정리함 / 새 화분 들임 / 물 준 뒤 잎이 폈다 …"
+                      maxLength={500}
+                      value={photoDraft.note}
+                      onChange={(event) => setPhotoDraft({ ...photoDraft, note: event.target.value })}
+                    />
+                  </label>
+
+                  {isBusy("photo-prepare") && <div className="photo-preview-note">사진을 줄이는 중…</div>}
+
+                  {pendingPhoto && (
+                    <div className="photo-preview">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={pendingPhoto.thumb} alt="선택한 사진 미리보기" />
+                      <div className="photo-preview-body">
+                        <strong>{pendingPhoto.name}</strong>
+                        <span className="meta">약 {Math.round(pendingPhoto.image.length / 1400)}KB로 줄였습니다</span>
+                        <button
+                          type="button"
+                          className="btn sm"
+                          onClick={() => {
+                            setPendingPhoto(null);
+                            if (photoInputRef.current) photoInputRef.current.value = "";
+                          }}
+                        >
+                          <X size={14} /> 사진 빼기
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <button
+                    className="btn primary"
+                    type="submit"
+                    disabled={isBusy("photo-upload") || isBusy("photo-prepare")}
+                  >
+                    <Plus size={16} /> {isBusy("photo-upload") ? "저장 중…" : "기록 저장"}
+                  </button>
+                </form>
+              </div>
+
+              <div className="panel">
+                <div className="panel-title">
+                  <h2><StickyNote size={18} /> 모아보기</h2>
+                  <span className="meta">{photos.length}건</span>
+                </div>
+
                 {isBusy("photos") ? (
-                  <div className="empty">사진을 불러오는 중입니다.</div>
+                  <div className="empty">기록을 불러오는 중입니다.</div>
                 ) : photosError ? (
                   <div className="empty">
                     <p>{photosError}</p>
@@ -1872,42 +1938,48 @@ export default function Page() {
                       <RefreshCw size={14} /> 다시 시도
                     </button>
                   </div>
-                ) : photoGallery.length ? (
+                ) : photos.length ? (
                   <div className="photo-grid">
-                    {photoGallery.map((photo) => (
+                    {photos.map((photo) => (
                       <figure className="photo-card" key={photo.id}>
-                        <button className="photo-thumb" onClick={() => openPhoto(photo)} title="크게 보기">
-                          {photo.thumb_url ? (
-                            /* eslint-disable-next-line @next/next/no-img-element */
+                        {photo.has_image && photo.thumb_url ? (
+                          <button className="photo-thumb" onClick={() => openPhoto(photo)} title="크게 보기">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img
                               src={photo.thumb_url}
-                              alt={`${photo.plant_name} ${photo.captured_at}`}
+                              alt={`${photo.plant_name ?? "전체"} ${photo.captured_at}`}
                               loading="lazy"
                               onError={(event) => {
                                 event.currentTarget.style.display = "none";
                               }}
                             />
-                          ) : (
-                            <span className="photo-missing"><Camera size={20} /></span>
-                          )}
-                        </button>
+                          </button>
+                        ) : (
+                          <div className="photo-thumb note-only">
+                            <StickyNote size={20} />
+                          </div>
+                        )}
                         <figcaption>
                           <div className="photo-caption-main">
-                            <button
-                              type="button"
-                              className="plant-open"
-                              title={`${photo.plant_name} 기록 보기`}
-                              onClick={() => openPlantAnalysis(photo.plant_id)}
-                            >
-                              {photo.plant_name}
-                            </button>
+                            {photo.plant_id ? (
+                              <button
+                                type="button"
+                                className="plant-open"
+                                title={`${photo.plant_name} 기록 보기`}
+                                onClick={() => openPlantAnalysis(photo.plant_id as string)}
+                              >
+                                {photo.plant_name}
+                              </button>
+                            ) : (
+                              <strong className="muted-name">전체</strong>
+                            )}
                             <span className="meta">{photo.captured_at}</span>
                           </div>
                           {photo.note && <p>{photo.note}</p>}
                         </figcaption>
                         <button
                           className="icon-btn danger sm photo-delete"
-                          title="사진 삭제"
+                          title="기록 삭제"
                           disabled={isBusy(`photo:${photo.id}`)}
                           onClick={() => deletePhoto(photo)}
                         >
@@ -1917,7 +1989,7 @@ export default function Page() {
                     ))}
                   </div>
                 ) : (
-                  <div className="empty">아직 올린 사진이 없습니다. 식물 기록에서 첫 사진을 남겨보세요.</div>
+                  <div className="empty">아직 기록이 없습니다. 위에서 첫 기록을 남겨보세요.</div>
                 )}
               </div>
             </section>

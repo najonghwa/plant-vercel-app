@@ -105,13 +105,14 @@ create table if not exists day_memos (
 create index if not exists day_memos_date_idx
   on day_memos (entry_date desc, created_at desc);
 
--- 식물별 기록(관찰 일지). 날짜 + 메모 + (선택) 사진 한 장.
+-- 기록. 날짜 + 메모 + (선택) 사진 한 장.
+-- plant_id가 null이면 특정 식물이 아닌 기록(화분들 모아 찍은 사진 등).
 -- 사진은 별도 스토리지 없이 data URL 문자열로 보관한다.
 -- image_url은 원본, thumb_url은 목록용 축소본이며 목록 조회에는 thumb_url만 쓴다.
 -- image_url이 null이면 사진 없이 메모만 남긴 기록이다.
 create table if not exists plant_photos (
   id uuid primary key default gen_random_uuid(),
-  plant_id uuid not null references plants(id) on delete cascade,
+  plant_id uuid references plants(id) on delete cascade,
   image_url text,
   thumb_url text not null default '',
   note text not null default '',
@@ -121,6 +122,7 @@ create table if not exists plant_photos (
 
 alter table plant_photos add column if not exists thumb_url text not null default '';
 alter table plant_photos alter column image_url drop not null;
+alter table plant_photos alter column plant_id drop not null;
 
 create index if not exists watering_logs_plant_date_idx
   on watering_logs (plant_name, watered_at desc);

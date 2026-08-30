@@ -3,8 +3,9 @@ import { query, queryOne } from "@/lib/db";
 import type { PlantPhoto } from "@/lib/types";
 
 /**
- * 식물별 기록(관찰 일지). 날짜 + 메모 + (선택) 사진 한 장으로 이뤄진다.
- * 사진 없이 메모만 남길 수도 있다.
+ * 기록. 날짜 + 메모 + (선택) 사진 한 장으로 이뤄진다.
+ * 사진 없이 메모만 남길 수도 있고, 특정 식물이 아닌 전체 사진도 남길 수 있다
+ * (plant_id가 null이면 "특정 식물 아님").
  *
  * 테이블 이름이 plant_photos인 것은 사진 전용으로 먼저 만들어진 흔적이다.
  * 저장 구조는 그대로 두고 의미만 넓혔다.
@@ -38,7 +39,7 @@ async function migratePlantPhotos() {
   await query(
     `create table if not exists plant_photos (
        id uuid primary key default gen_random_uuid(),
-       plant_id uuid not null references plants(id) on delete cascade,
+       plant_id uuid references plants(id) on delete cascade,
        image_url text,
        note text not null default '',
        captured_at date not null default current_date,
@@ -49,6 +50,8 @@ async function migratePlantPhotos() {
   await query("alter table plant_photos add column if not exists thumb_url text not null default ''");
   // 사진 없이 메모만 남기는 기록을 허용한다.
   await query("alter table plant_photos alter column image_url drop not null");
+  // 특정 식물이 아닌 기록(화분들 모아 찍은 사진 등)을 허용한다.
+  await query("alter table plant_photos alter column plant_id drop not null");
 
   await query(
     `create index if not exists plant_photos_plant_captured_idx
@@ -74,7 +77,7 @@ export async function GET(request: Request) {
        ph.captured_at::text,
        ph.created_at
      from plant_photos ph
-     join plants p on p.id = ph.plant_id
+     left join plants p on p.id = ph.plant_id
      where $1::uuid is null or ph.plant_id = $1::uuid
      order by ph.captured_at desc, ph.created_at desc
      limit $2`,
@@ -95,8 +98,8 @@ export async function POST(request: Request) {
 
   const note = String(body.note ?? "").trim();
 
-  if (!plantId || !capturedAt) {
-    return NextResponse.json({ error: "식물과 날짜가 필요합니다." }, { status: 400 });
+  if (!capturedAt) {
+    return NextResponse.json({ error: "날짜가 필요합니다." }, { status: 400 });
   }
 
   // 사진은 선택이다. 대신 사진도 메모도 없으면 남길 내용이 없다.
@@ -131,19 +134,23 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "촬영일 형식이 올바르지 않습니다." }, { status: 400 });
   }
 
-  const plant = await queryOne<{ id: string }>("select id from plants where id = $1", [plantId]);
-  if (!plant) {
-    return NextResponse.json({ error: "식물을 찾을 수 없습니다." }, { status: 404 });
+  // 식물은 선택이다. 지정했다면 실제로 있는 식물이어야 한다.
+  if (plantId) {
+    const plant = await queryOne<{ id: string }>("select id from plants where id = $1", [plantId]);
+    if (!plant) {
+      return NextResponse.json({ error: "식물을 찾을 수 없습니다." }, { status: 404 });
+    }
   }
 
   // 사진이 없는 메모는 용량 부담이 거의 없으므로 장수 상한 대상에서 뺀다.
   const counts = imageUrl ? await queryOne<{ per_plant: number; total: number }>(
     `select
-       count(*) filter (where plant_id = $1)::int as per_plant,
+       count(*) filter (where plant_id = $1::uuid)::int as per_plant,
        count(*)::int as total
      from plant_photos
      where image_url is not null`,
-    [plantId],
+    // 식물을 안 고른 기록은 빈 문자열이 uuid로 캐스팅되며 터진다. null로 넘긴다.
+    [plantId || null],
   ) : null;
   if ((counts?.per_plant ?? 0) >= MAX_PHOTOS_PER_PLANT) {
     return NextResponse.json(
@@ -165,13 +172,13 @@ export async function POST(request: Request) {
      returning
        id,
        plant_id,
-       (select name from plants where id = $1) as plant_name,
+       (select name from plants where id = plant_id) as plant_name,
        nullif(thumb_url, '') as thumb_url,
        image_url is not null as has_image,
        note,
        captured_at::text,
        created_at`,
-    [plantId, imageUrl || null, storedThumb, note.slice(0, 500), capturedAt],
+    [plantId || null, imageUrl || null, storedThumb, note.slice(0, 500), capturedAt],
   );
 
   return NextResponse.json({ photo: photos[0] }, { status: 201 });
