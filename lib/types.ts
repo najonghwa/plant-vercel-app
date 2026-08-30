@@ -69,6 +69,8 @@ export type PlantPhoto = {
   plant_name: string;
   /** 목록 응답에는 썸네일만 실린다. 원본은 /api/plant-photos/[id]로 따로 가져온다. */
   thumb_url: string | null;
+  /** 사진 없이 메모만 남긴 기록이면 false. */
+  has_image: boolean;
   note: string;
   captured_at: string;
   created_at: string;

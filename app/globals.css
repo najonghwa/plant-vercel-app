@@ -1457,6 +1457,139 @@ h1 {
   overflow-wrap: anywhere;
 }
 
+/* ── 식물별 기록(관찰 일지) ───────────── */
+.plant-open {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  border: 0;
+  background: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.plant-open:hover {
+  color: var(--green);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.plant-open svg {
+  flex: none;
+  color: var(--muted);
+}
+
+.journal-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+}
+
+.journal-title > span:first-child {
+  display: inline-flex;
+  gap: 7px;
+  align-items: center;
+}
+
+.journal {
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+
+.journal-form {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: #fbfbf8;
+  padding: 12px;
+}
+
+.journal-form-top {
+  display: grid;
+  grid-template-columns: 170px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.journal-form .textarea {
+  min-height: 74px;
+}
+
+.journal-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.journal-item {
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  padding: 10px;
+}
+
+.journal-thumb {
+  display: block;
+  width: 62px;
+  height: 62px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 8px;
+  background: #f1f1ec;
+  padding: 0;
+}
+
+.journal-thumb img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+/* 사진 없이 메모만 있는 기록도 같은 자리를 차지해 줄이 흐트러지지 않게 한다. */
+.journal-nophoto {
+  display: flex;
+  width: 62px;
+  height: 62px;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+}
+
+.journal-body {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.journal-body strong {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.journal-body p {
+  margin: 0;
+  color: #5d615a;
+  font-size: 12.5px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 /* ── 설정 모달 ────────────────────────── */
 .modal-backdrop {
   position: fixed;
@@ -1631,6 +1764,10 @@ h1 {
 
   .photo-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .journal-form-top {
+    grid-template-columns: 1fr;
   }
 
   /* 좁은 화면에서는 날짜 입력이 한 줄을 다 쓰게 둔다 */
