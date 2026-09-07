@@ -2678,3 +2678,500 @@ h1 {
   font-weight: 700;
   color: var(--muted);
 }
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   도감 삽화 · 관리판 정리 (2026-09)
+   ═══════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* 옛 도판은 선화 위에 물감을 옅게 얹었다. 잎은 초록, 열매만 색을 달리한다. */
+  --leaf: rgba(79, 107, 69, .22);
+  --fruit-warm: rgba(165, 119, 31, .26);
+  --fruit-rose: rgba(168, 76, 109, .24);
+  --fruit-plum: rgba(96, 80, 124, .26);
+}
+
+.plant-art {
+  display: block;
+  width: 100%;
+  height: auto;
+  color: var(--ink);
+}
+
+/* 윤곽선은 그대로 두고 안쪽만 칠한다. stroke를 건드리면 선화가 사라진다. */
+.art-leaf { fill: var(--leaf); }
+.art-warm { fill: var(--fruit-warm); }
+.art-rose { fill: var(--fruit-rose); }
+.art-plum { fill: var(--fruit-plum); }
+
+/* 도장은 각을 맞춘다. 기울이면 목록에서 줄이 흐트러져 보인다. */
+.status,
+.plant-table .status,
+.plant-list-item .status {
+  transform: none;
+}
+
+/* ── 관리판 도구 줄: 날짜와 검색을 한 상자에 ─────────── */
+.dash-bar {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--ink);
+  border-radius: 2px;
+  background: var(--panel);
+  padding: 12px 14px;
+}
+
+.dash-bar.past {
+  border-color: var(--amber);
+}
+
+.dash-bar-row {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(160px, 1fr) 130px 130px;
+  gap: 12px;
+  align-items: end;
+}
+
+.dash-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* ── 식물 카드: 삽화 + 이름 + 물주기 ────────────────── */
+.pcard {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px 13px;
+}
+
+.pcard-open {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  border: 0;
+  background: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pcard-figure {
+  display: block;
+  width: 44px;
+  color: var(--ink);
+}
+
+.pcard-id {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.pcard-id strong {
+  font-family: var(--kr);
+  font-size: 18px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.pcard-open:hover .pcard-id strong {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.pcard-id .latin {
+  font-size: 12.5px;
+  font-style: italic;
+}
+
+.pcard-where {
+  font-family: var(--lat);
+  font-variant: small-caps;
+  letter-spacing: .1em;
+  font-size: 12.5px;
+  color: var(--ink-faint);
+}
+
+.pcard-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 16px;
+  align-items: baseline;
+  border-top: 1px solid var(--paper-line);
+  border-bottom: 1px solid var(--paper-line);
+  padding: 8px 0;
+  font-family: var(--lat);
+  font-variant: small-caps;
+  letter-spacing: .08em;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.pcard-line strong {
+  margin-left: 6px;
+  font-variant: normal;
+  font-variant-numeric: lining-nums;
+  letter-spacing: 0;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.pcard-since {
+  margin-left: auto;
+  font-family: var(--kr);
+  font-variant: normal;
+  letter-spacing: 0;
+  font-size: 12.5px;
+  color: var(--ink-faint);
+}
+
+.water-btn {
+  flex: 1 1 auto;
+  justify-content: center;
+  font-size: 14px;
+}
+
+.water-btn.done {
+  border-style: dashed;
+  color: var(--ink-faint);
+}
+
+/* ── 분석: 왼쪽 도판, 오른쪽 수치 ───────────────────── */
+.plate {
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.plate-figure {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  margin: 0;
+  border: 1px solid var(--ink);
+  border-radius: 2px;
+  background: rgba(255, 255, 255, .3);
+  padding: 18px 14px 14px;
+}
+
+.plate-art {
+  width: 100%;
+  max-width: 190px;
+}
+
+.plate-photo {
+  display: block;
+  width: 100%;
+  border: 1px solid var(--ink);
+  border-radius: 2px;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+/* 썸네일 원본이 360px이다. 한 열로 접히면 칸이 그보다 훨씬 넓어져,
+   늘려 그리면 뭉개진 사진이 크게 걸린다. */
+.plate-photo {
+  max-width: 260px;
+}
+
+.plate-photo img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  object-fit: cover;
+}
+
+.plate-figure figcaption {
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  text-align: center;
+}
+
+.plate-latin {
+  font-size: 19px;
+}
+
+.plate-foot {
+  font-family: var(--lat);
+  font-variant: small-caps;
+  font-variant-numeric: lining-nums;
+  letter-spacing: .12em;
+  font-size: 12.5px;
+  color: var(--ink-faint);
+}
+
+.plate-upload {
+  position: relative;
+  cursor: pointer;
+}
+
+/* 파일 입력 기본 모양은 감추되 display:none은 쓰지 않는다.
+   그러면 키보드 탭 순서에서도 빠져 사진을 올릴 방법이 사라진다. */
+.plate-upload input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.plate-upload:focus-within .btn {
+  box-shadow: 0 0 0 3px rgba(44, 37, 25, .22);
+}
+
+.plate-upload .btn {
+  cursor: pointer;
+}
+
+.plate-data {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+}
+
+/* ── 캘린더: 물 준 식물 이름 ────────────────────────── */
+.day-cell {
+  min-height: 96px;
+}
+
+.day-plants {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: auto;
+  width: 100%;
+  min-width: 0;
+}
+
+.day-plant {
+  display: block;
+  overflow: hidden;
+  border-left: 2px solid var(--green);
+  padding-left: 3px;
+  /* 칸 너비가 90px 남짓이라 이보다 크면 이름 대부분이 잘린다. */
+  font-size: 10px;
+  letter-spacing: -.01em;
+  line-height: 1.4;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--ink-soft);
+}
+
+.day-more {
+  font-family: var(--lat);
+  font-variant-numeric: lining-nums;
+  font-size: 10.5px;
+  color: var(--ink-faint);
+}
+
+.day-cell.selected .day-plant {
+  border-left-color: var(--paper);
+  color: var(--paper);
+}
+
+.day-cell.selected .day-more {
+  color: var(--paper);
+}
+
+.diary-mark {
+  font-family: var(--lat);
+  font-size: 14px;
+  color: var(--ink-faint);
+}
+
+/* ── 급수 탭 ────────────────────────────────────────── */
+.bulk-auto {
+  display: grid;
+  gap: 10px;
+  margin: 14px 0 18px;
+  border: 1px dashed var(--line);
+  border-radius: 2px;
+  padding: 12px 14px;
+}
+
+.bulk-auto-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.bulk-auto-grid label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  font-size: 12.5px;
+}
+
+.bulk-auto-grid input {
+  height: 38px;
+  padding: 0 10px;
+}
+
+.bulk-auto > .btn {
+  justify-self: start;
+}
+
+.water-table {
+  min-width: 960px;
+}
+
+.water-table td {
+  vertical-align: middle;
+}
+
+.water-table input {
+  width: 76px;
+  height: 32px;
+  padding: 0 8px;
+  font-variant-numeric: lining-nums;
+}
+
+.water-table .select {
+  width: auto;
+  min-width: 128px;
+  height: 32px;
+  padding: 0 8px;
+}
+
+.water-table .btn.sm {
+  white-space: nowrap;
+}
+
+/* 급수 탭은 패널이 둘이라 사이를 띄운다.
+   .tab-page 전체에 margin을 주면 이미 grid gap이 있는 기록/분석 탭이 두 배로 벌어진다. */
+.water-layout {
+  display: grid;
+  gap: 18px;
+}
+
+/* 센서가 한 곳뿐이어도 칸이 비어 보이지 않게 한다. */
+.sensor-strip {
+  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
+}
+
+@media (max-width: 1280px) {
+  .plate {
+    grid-template-columns: 1fr;
+  }
+
+  .plate-figure {
+    justify-items: center;
+  }
+
+  .plate-art {
+    max-width: 190px;
+  }
+}
+
+@media (max-width: 640px) {
+  .dash-bar-row,
+  .bulk-auto-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .pcard-open {
+    grid-template-columns: 38px minmax(0, 1fr) auto;
+    gap: 10px;
+  }
+
+  .pcard-figure {
+    width: 38px;
+  }
+
+  .pcard-since {
+    margin-left: 0;
+  }
+
+  .day-cell {
+    min-height: 74px;
+  }
+
+  .day-plant {
+    font-size: 9px;
+    padding-left: 3px;
+  }
+
+  .day-more {
+    font-size: 9px;
+  }
+}
+
+/* .photo-card > * 규칙이 뒤에 와서 절대배치를 덮어썼다.
+   그 바람에 삭제 버튼이 카드 모서리가 아니라 카드 아래로 떨어져 있었다. */
+.photo-card > .photo-delete {
+  position: absolute;
+}
+
+/* 관리판의 주 동작. 검은 막대가 카드마다 서면 지면이 무거워져 잎 색을 쓴다. */
+.water-btn.primary {
+  border-color: var(--green);
+  background: var(--green);
+  color: var(--paper);
+}
+
+.water-btn.primary:hover:not(:disabled) {
+  border-color: var(--ink);
+  background: var(--ink);
+}
+
+
+/* ── 급수 탭·도구 줄 마무리 (검토 반영) ─────────────────── */
+
+/* grid 자식은 기본 min-width가 auto라, 안에 든 넓은 표가 칸을 밀어
+   페이지 전체가 가로로 스크롤됐다(700px에서 313px). */
+.water-layout > * {
+  min-width: 0;
+}
+
+/* 표 안의 입력칸이 12px이면 iOS Safari가 누를 때마다 화면을 확대한다. */
+.water-table input,
+.water-table .select {
+  font-size: 16px;
+}
+
+/* 이 앱에서 가장 넓은 패널이 990px 남짓이다. 그보다 넓게 잡으면
+   어떤 화면에서도 표가 옆으로 잘려 마지막 칸을 못 본다. */
+.water-table {
+  min-width: 900px;
+}
+
+.water-table input {
+  width: 64px;
+}
+
+.water-table .select {
+  min-width: 112px;
+}
+
+/* 날짜 칸과 검색 칸이 붙어 겹치던 폭 구간을 없앤다. */
+.water-date-controls {
+  flex-wrap: wrap;
+}
+
+.dash-bar-row .water-date-controls .input {
+  flex: 1 1 130px;
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .dash-bar-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .dash-bar-row {
+    grid-template-columns: 1fr;
+  }
+}

@@ -107,7 +107,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "메모를 쓰거나 사진을 넣어주세요." }, { status: 400 });
   }
 
-  let storedThumb: string | null = null;
+  // thumb_url 컬럼은 not null이라 사진 없는 기록도 빈 문자열로 넣어야 한다.
+  // null을 넣으면 메모만 남기는 저장이 통째로 500으로 떨어진다.
+  let storedThumb = "";
 
   if (imageUrl) {
     if (!/^data:image\/(jpeg|png|webp);base64,/.test(imageUrl)) {
