@@ -29,6 +29,7 @@ import {
   X,
 } from "lucide-react";
 import type { DayMemo, Plant, PlantPhoto, SensorReading, WateringLog } from "@/lib/types";
+import { latinNameFor } from "@/lib/latinNames";
 
 type PlantModel = Plant & {
   logs: WateringLog[];
@@ -79,6 +80,11 @@ function formatLocalDate(date: Date) {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+/** 카드처럼 좁은 칸에서 쓰는 "09 · 01" 꼴. 연도는 툴팁으로만 남긴다. */
+function shortDate(value: string) {
+  return value.slice(5, 10).replace("-", " · ");
 }
 
 function toDate(value: string) {
@@ -1166,9 +1172,9 @@ export default function Page() {
           <div>
             <div className="eyebrow">
               <Sprout size={16} />
-              Plant IoT
+              Hortus Domesticus
             </div>
-            <h1>J&apos;s Smart Farm</h1>
+            <h1>J&rsquo;s Smart Farm</h1>
           </div>
           <div className="actions">
             <button className="btn" onClick={loadAll} disabled={loading}>
@@ -1202,6 +1208,23 @@ export default function Page() {
           <button className={`navitem ${activeTab === "add" ? "active" : ""}`} onClick={() => setActiveTab("add")}>
             <Plus size={17} /> 새 식물
           </button>
+
+          <div className="sidenav-plate" aria-hidden="true">
+            <svg viewBox="0 0 96 130" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M48 128 C48 100 48 70 50 22" />
+              <path d="M49 96 C38 94 28 88 26 76 C38 78 47 86 49 96Z" />
+              <path d="M31 84 L40 89 M30 80 L38 85" />
+              <path d="M50 78 C61 76 71 70 73 58 C61 60 52 68 50 78Z" />
+              <path d="M68 66 L59 71 M69 62 L61 67" />
+              <path d="M49 60 C38 58 29 51 28 40 C40 42 48 50 49 60Z" />
+              <path d="M33 48 L41 53 M32 44 L40 49" />
+              <path d="M50 44 C60 42 68 36 69 26 C59 28 52 35 50 44Z" />
+              <path d="M64 33 L57 38 M65 30 L58 35" />
+              <path d="M50 22 C47 17 47 12 50 6 C53 12 53 17 50 22Z" />
+              <path d="M42 126 C46 122 52 122 56 126" />
+            </svg>
+            <span className="latin">Ocimum basilicum</span>
+          </div>
         </aside>
 
         <div className="content-col">
@@ -1383,6 +1406,9 @@ export default function Page() {
                               </button>
                             </h3>
                             <div className="tags">
+                              {latinNameFor(plant.name) && (
+                                <span className="tag latin">{latinNameFor(plant.name)}</span>
+                              )}
                               <span className="tag">{plant.category || "분류 없음"}</span>
                               <span className="tag">{plant.location}</span>
                               {plant.automation_enabled && <span className="tag auto">자동급수</span>}
@@ -1394,14 +1420,18 @@ export default function Page() {
                         <div className="pcard-metrics">
                           <div className="pmetric">
                             <span className="meta">마지막 급수</span>
-                            <strong>{plant.lastWatered ?? "기록 없음"}</strong>
+                            <strong title={plant.lastWatered ?? undefined}>
+                              {plant.lastWatered ? shortDate(plant.lastWatered) : "기록 없음"}
+                            </strong>
                             <span className="pmetric-sub">
                               {daysSince === null ? " " : daysSince === 0 ? "오늘" : `${daysSince}일 전`}
                             </span>
                           </div>
                           <div className="pmetric">
                             <span className="meta">다음 예정</span>
-                            <strong>{plant.nextDue ?? "-"}</strong>
+                            <strong title={plant.nextDue ?? undefined}>
+                              {plant.nextDue ? shortDate(plant.nextDue) : "-"}
+                            </strong>
                             <span className="pmetric-sub">
                               {plant.dday === null
                                 ? " "
@@ -1540,7 +1570,10 @@ export default function Page() {
                         className={`plant-list-item ${selectedPlant?.id === plant.id ? "active" : ""}`}
                         onClick={() => setSelectedPlantId(plant.id)}
                       >
-                        <span>{plant.name}</span>
+                        <span className="plant-list-name">
+                          <span>{plant.name}</span>
+                          {latinNameFor(plant.name) && <span className="latin">{latinNameFor(plant.name)}</span>}
+                        </span>
                         <span className={`status ${status.className}`}>{status.label}</span>
                       </button>
                     );
@@ -1551,7 +1584,12 @@ export default function Page() {
               {selectedPlant && (
                 <div className="panel">
                   <div className="panel-title">
-                    <h2>{selectedPlant.name}</h2>
+                    <h2>
+                      {selectedPlant.name}
+                      {latinNameFor(selectedPlant.name) && (
+                        <span className="latin h2-latin">{latinNameFor(selectedPlant.name)}</span>
+                      )}
+                    </h2>
                     <span className="meta">{selectedPlant.location}</span>
                   </div>
 

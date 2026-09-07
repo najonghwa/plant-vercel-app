@@ -1,5 +1,24 @@
 import type { Metadata } from "next";
+import { Cormorant_Garamond, Nanum_Myeongjo } from "next/font/google";
 import "./globals.css";
+
+// 도감 느낌의 글꼴 두 벌. 라틴 학명·숫자는 Cormorant, 한글 본문은 나눔명조.
+// next/font로 넣어 배포 시 자체 호스팅되고, 로드 전후 레이아웃이 흔들리지 않는다.
+const latin = Cormorant_Garamond({
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  style: ["normal", "italic"],
+  variable: "--font-lat",
+  display: "swap",
+});
+
+const korean = Nanum_Myeongjo({
+  weight: ["400", "700", "800"],
+  variable: "--font-kr",
+  display: "swap",
+  // 이 글꼴은 Google Fonts에 한글 서브셋 이름이 따로 없어 프리로드를 끈다.
+  preload: false,
+});
 
 export const metadata: Metadata = {
   title: "J's Smart Farm",
@@ -8,7 +27,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ko">
+    <html lang="ko" className={`${latin.variable} ${korean.variable}`}>
       <body>{children}</body>
     </html>
   );

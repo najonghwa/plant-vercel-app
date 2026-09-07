@@ -1,22 +1,30 @@
 :root {
   color-scheme: light;
-  --bg: #f6f7f3;
-  --panel: #ffffff;
-  --line: #e8e6df;
-  --line-soft: #f0eee7;
-  --text: #1b1d1a;
-  /* 흰 배경에서 4.02:1이라 WCAG AA(4.5:1)에 못 미쳤다. 한 단계 어둡게. */
-  --muted: #6b6f68;
-  --green: #2f7d4f;
-  --green-strong: #246340;
-  --green-soft: #e9f6ee;
-  --amber: #b45309;
-  --amber-soft: #fff5e0;
-  --rose: #c43b54;
-  --rose-soft: #fdecef;
-  --radius: 14px;
-  --radius-sm: 10px;
-  --shadow: 0 1px 2px rgba(20, 30, 22, .05), 0 8px 24px -16px rgba(20, 30, 22, .25);
+  /* 도감 팔레트. 종이 위에 잉크, 강조는 폭스글러브·황토·이끼 세 가지만. */
+  --paper: #f4eddc;
+  --paper-deep: #e8dec6;
+  --paper-line: #d8cbae;
+  --bg: var(--paper);
+  --panel: rgba(255, 255, 255, .34);
+  --line: #b9ac93;
+  --line-soft: #d8cbae;
+  --text: #2c2519;
+  --ink: #2c2519;
+  --ink-soft: #5b4f3f;
+  --muted: #6f6352;
+  --ink-faint: #9a8d77;
+  --green: #4f6b45;
+  --green-strong: #3e5636;
+  --green-soft: #e3e8d3;
+  --amber: #a5771f;
+  --amber-soft: #f3e7c6;
+  --rose: #a84c6d;
+  --rose-soft: #f2dde4;
+  --radius: 2px;
+  --radius-sm: 2px;
+  --shadow: none;
+  --lat: var(--font-lat), "Cormorant Garamond", var(--font-kr), "Nanum Myeongjo", Georgia, serif;
+  --kr: var(--font-kr), "Nanum Myeongjo", "Apple Myungjo", Batang, serif;
 }
 
 * {
@@ -1836,4 +1844,837 @@ h1 {
     right: 3px;
     font-size: 9px;
   }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   도감 테마 (herbarium plate)
+   기존 레이아웃 규칙은 그대로 두고, 겉모습만 이 레이어에서 덮어쓴다.
+   모바일 미디어쿼리의 그리드/폭 규칙은 건드리지 않는다.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+body {
+  font-family: var(--kr);
+  background-color: var(--paper);
+  /* 종이 결. SVG 노이즈를 곱하기 블렌드로 얇게 깐다. */
+  background-image:
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.35 0 0 0 0 0.28 0 0 0 0 0.18 0 0 0 .13 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+
+/* 가장자리 비네트. 고정 오버레이라 스크롤해도 프레임처럼 남는다. */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0) 60%, rgba(60, 45, 25, .16) 100%);
+}
+
+.shell {
+  position: relative;
+  z-index: 1;
+}
+
+.lat,
+.latin {
+  font-family: var(--lat);
+}
+
+.latin {
+  font-style: italic;
+  color: var(--ink-soft);
+  letter-spacing: .01em;
+}
+
+/* 작은 대문자 라벨. 도감의 "Tabula I" 같은 표기. */
+.smallcaps,
+.meta,
+.stat-label,
+.sensor-label,
+.pmetric .meta,
+.chart-title,
+.weekday,
+.plant-table thead th {
+  font-family: var(--lat);
+  font-variant: small-caps;
+  letter-spacing: .12em;
+  font-weight: 600;
+  text-transform: none;
+}
+
+.meta,
+.stat-label,
+.sensor-label {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+/* ── 헤더 ─────────────────────────────── */
+.topbar {
+  background: var(--paper-deep);
+  border-bottom: 1px solid var(--ink);
+  padding: 28px 24px 22px;
+}
+
+.eyebrow {
+  font-family: var(--lat);
+  font-variant: small-caps;
+  letter-spacing: .16em;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  text-transform: none;
+}
+
+h1 {
+  font-family: var(--lat);
+  font-style: italic;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--ink);
+}
+
+/* ── 버튼 ─────────────────────────────── */
+.btn,
+.icon-btn,
+.daychip,
+.check-chip,
+.file-input::file-selector-button {
+  border: 1px solid var(--ink);
+  border-radius: 2px;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--kr);
+  font-weight: 700;
+  box-shadow: none;
+}
+
+.btn:hover,
+.icon-btn:hover,
+.daychip:hover {
+  border-color: var(--ink);
+  background: rgba(255, 255, 255, .45);
+}
+
+.btn.primary,
+.daychip.on {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.btn.primary:hover {
+  background: #1f1a11;
+  border-color: #1f1a11;
+}
+
+.btn.danger,
+.icon-btn.danger {
+  border-color: var(--rose);
+  background: transparent;
+  color: var(--rose);
+}
+
+.navitem {
+  border-radius: 2px;
+  font-family: var(--kr);
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.navitem:hover {
+  background: rgba(255, 255, 255, .4);
+}
+
+.navitem.active {
+  border-color: var(--ink);
+  background: rgba(255, 255, 255, .45);
+  color: var(--ink);
+  box-shadow: none;
+}
+
+/* 사이드바 하단 삽화 */
+.sidenav-plate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+  color: var(--ink);
+}
+
+.sidenav-plate .latin {
+  font-size: 13px;
+  color: var(--ink-faint);
+}
+
+/* ── 패널·카드: 잉크 외곽선 + 안쪽 얇은 괘선 ───────────── */
+.card,
+.panel,
+.stat,
+.pcard,
+.soil-card,
+.photo-card,
+.journal-item,
+.journal-form,
+.water-date,
+.modal,
+.photo-viewer,
+.sensor-card,
+.calendar-item,
+.metric,
+.automation-grid {
+  position: relative;
+  border: 1px solid var(--ink);
+  border-radius: 2px;
+  background: var(--panel);
+  box-shadow: none;
+}
+
+.stat::after,
+.pcard::after,
+.panel::after,
+.photo-card::after,
+.modal::after {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border: 1px solid var(--paper-line);
+  pointer-events: none;
+}
+
+.panel > *,
+.stat > *,
+.pcard > *,
+.photo-card > *,
+.modal > * {
+  position: relative;
+  z-index: 1;
+}
+
+.sensor-card,
+.calendar-item,
+.metric,
+.journal-item,
+.soil-card,
+.journal-form,
+.automation-grid {
+  border-color: var(--line);
+}
+
+/* 통계 카드: 아이콘 대신 큰 세리프 숫자 */
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 18px 14px;
+  background: var(--panel);
+}
+
+.stat-ico {
+  display: none;
+}
+
+.stat-danger,
+.stat-today,
+.stat-soon {
+  background: var(--panel);
+  border-color: var(--ink);
+}
+
+.stat-value {
+  font-family: var(--lat);
+  font-size: 42px;
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 1;
+  margin-top: 6px;
+}
+
+.stat-value em {
+  font-family: var(--lat);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 15px;
+  margin-left: 5px;
+  color: var(--ink-soft);
+}
+
+.stat-danger .stat-label,
+.stat-danger .stat-value { color: var(--rose); }
+.stat-today .stat-label,
+.stat-today .stat-value { color: var(--amber); }
+.stat-soon .stat-label,
+.stat-soon .stat-value { color: var(--green); }
+
+.stat-detail {
+  color: var(--ink-soft);
+  font-size: 12.5px;
+}
+
+/* 패널 제목 */
+.panel h2,
+.card h3,
+.modal-head h2 {
+  font-family: var(--kr);
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.panel-title {
+  border-bottom: 1px solid var(--ink);
+}
+
+/* ── 입력 ─────────────────────────────── */
+.input,
+.select,
+.textarea,
+.sensor-link-row select,
+.automation-grid input {
+  border: 1px solid var(--ink);
+  border-radius: 2px;
+  background: rgba(255, 255, 255, .5);
+  color: var(--ink);
+  font-family: var(--kr);
+}
+
+.input:focus,
+.select:focus,
+.textarea:focus,
+.automation-grid input:focus {
+  border-color: var(--ink);
+  box-shadow: 0 0 0 3px rgba(44, 37, 25, .12);
+}
+
+.input::placeholder,
+.textarea::placeholder {
+  color: var(--ink-faint);
+}
+
+/* ── 상태 표시: 도장 ──────────────────── */
+.status {
+  display: inline-block;
+  transform: rotate(-4deg);
+  border: 1.5px solid currentColor;
+  border-radius: 2px;
+  background: transparent;
+  padding: 2px 9px;
+  font-family: var(--lat);
+  font-variant: small-caps;
+  letter-spacing: .14em;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.status.late { color: var(--rose); }
+.status.soon { color: var(--amber); }
+.status.ok { color: var(--ink-faint); }
+
+/* 표·목록처럼 좁은 데는 기울이지 않는다 */
+.plant-table .status,
+.plant-list-item .status {
+  transform: none;
+  font-size: 11.5px;
+  padding: 1px 7px;
+}
+
+/* ── 식물 카드 ────────────────────────── */
+.pcard {
+  padding: 18px 20px 16px;
+  border-left-width: 1px;
+  border-left-color: var(--ink);
+}
+
+.pcard.tone-late,
+.pcard.tone-soon {
+  border-left-color: var(--ink);
+}
+
+.pcard-title h3 {
+  font-family: var(--kr);
+  font-weight: 800;
+  font-size: 19px;
+}
+
+.plant-open svg {
+  color: var(--ink-faint);
+}
+
+.plant-open:hover {
+  color: var(--rose);
+}
+
+.tags {
+  gap: 8px;
+}
+
+.tag,
+.tag.auto {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+  font-family: var(--lat);
+  font-style: italic;
+  font-size: 13.5px;
+  color: var(--ink-soft);
+  letter-spacing: .01em;
+}
+
+.tag.auto {
+  color: var(--green);
+}
+
+.tag + .tag::before {
+  content: "· ";
+  color: var(--ink-faint);
+}
+
+.pcard-metrics {
+  gap: 10px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: 10px 0;
+}
+
+.pmetric {
+  background: transparent;
+  border-radius: 0;
+  padding: 2px 0;
+  text-align: left;
+}
+
+.pmetric strong {
+  font-family: var(--lat);
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.pmetric-sub {
+  font-family: var(--lat);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+}
+
+.pcard-meta {
+  font-family: var(--lat);
+  font-style: italic;
+  font-size: 13.5px;
+  color: var(--ink-soft);
+}
+
+/* ── 센서 ─────────────────────────────── */
+.sensor-card {
+  background: rgba(255, 255, 255, .25);
+}
+
+.sensor-cell {
+  border: 0;
+  background: transparent;
+  padding: 6px 0;
+  text-align: left;
+}
+
+.sensor-value {
+  font-family: var(--lat);
+  font-size: 20px;
+  font-weight: 500;
+}
+
+.sensor-card.stale {
+  border-color: var(--rose);
+  background: var(--panel);
+}
+
+.sensor-age {
+  border-radius: 2px;
+  font-family: var(--lat);
+  font-style: italic;
+  font-variant: normal;
+  letter-spacing: 0;
+  font-size: 13px;
+  padding: 2px 8px;
+  background: transparent;
+}
+
+.sensor-age.live {
+  border: 1px solid var(--green);
+  color: var(--green);
+}
+
+.sensor-age.stale {
+  border: 1px solid var(--rose);
+  color: var(--rose);
+}
+
+.sensor-note,
+.warn-note,
+.water-date-note {
+  font-family: var(--lat);
+  font-style: italic;
+  font-size: 13.5px;
+  font-weight: 500;
+}
+
+.warn-note {
+  border: 1px solid var(--amber);
+  border-radius: 2px;
+  background: var(--amber-soft);
+}
+
+/* ── 물 준 날짜 ───────────────────────── */
+.water-date {
+  background: var(--panel);
+}
+
+.water-date.past {
+  border-color: var(--amber);
+  background: var(--amber-soft);
+}
+
+.daychip {
+  border-radius: 2px;
+}
+
+/* ── 분석 ─────────────────────────────── */
+.plant-list-item {
+  border: 0;
+  border-bottom: 1px dotted var(--line);
+  border-radius: 0;
+  background: transparent;
+  font-family: var(--kr);
+  font-weight: 700;
+}
+
+.plant-list-item:hover {
+  background: rgba(255, 255, 255, .4);
+}
+
+.plant-list-item.active {
+  background: rgba(255, 255, 255, .5);
+  border-left: 2px solid var(--ink);
+  color: var(--ink);
+}
+
+.analysis-cards .metric strong {
+  font-family: var(--lat);
+  font-size: 26px;
+  font-weight: 500;
+}
+
+.chart-block {
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.bar-track {
+  background: transparent;
+  border-bottom: 1px solid var(--ink);
+}
+
+/* 막대는 채우지 않고 판화처럼 빗금으로 */
+.bar {
+  border: 1px solid var(--ink);
+  border-bottom: 0;
+  border-radius: 0;
+  background: repeating-linear-gradient(135deg, transparent 0 3px, var(--ink) 3px 4px);
+}
+
+.bar-val,
+.bar-x {
+  font-family: var(--lat);
+  font-size: 12.5px;
+}
+
+.analysis-box {
+  border: 0;
+  border-left: 1px solid var(--ink);
+  border-radius: 0;
+  background: rgba(255, 255, 255, .25);
+}
+
+.analysis-box ul {
+  list-style: none;
+  padding-left: 0;
+}
+
+.analysis-box li::before {
+  content: "\2020  ";
+  color: var(--ink-faint);
+}
+
+.journal-title {
+  border-bottom: 1px solid var(--ink);
+  padding-bottom: 6px;
+}
+
+.journal-thumb,
+.photo-thumb,
+.photo-preview img {
+  border: 1px solid var(--ink);
+  border-radius: 2px;
+  background: rgba(255, 255, 255, .5);
+}
+
+.journal-nophoto,
+.photo-thumb.note-only {
+  border: 1px dashed var(--line);
+  border-radius: 2px;
+}
+
+.journal-body strong,
+.photo-caption-main .meta {
+  font-family: var(--lat);
+  font-size: 15px;
+  font-weight: 600;
+  font-variant: normal;
+  letter-spacing: 0;
+}
+
+/* ── 캘린더 ───────────────────────────── */
+.month-grid {
+  gap: 0;
+  border-top: 1px solid var(--ink);
+  border-left: 1px solid var(--ink);
+}
+
+.weekday {
+  border-right: 1px solid var(--ink);
+  border-bottom: 1px solid var(--ink);
+  background: var(--paper-deep);
+  color: var(--ink-soft);
+  padding: 6px 0;
+}
+
+.day-cell {
+  border: 0;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+}
+
+.day-cell:hover {
+  background: rgba(255, 255, 255, .4);
+}
+
+.day-cell.today {
+  box-shadow: inset 0 0 0 1.5px var(--ink);
+  background: transparent;
+}
+
+.day-cell.selected {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.day-cell.selected .day-num,
+.day-cell.selected strong {
+  color: var(--paper);
+}
+
+.day-num {
+  font-family: var(--lat);
+  font-size: 14px;
+}
+
+.day-cell strong {
+  border-radius: 2px;
+  font-family: var(--lat);
+  font-weight: 500;
+}
+
+.month-controls strong {
+  font-family: var(--lat);
+  font-size: 18px;
+  font-weight: 500;
+}
+
+/* ── 표 ───────────────────────────────── */
+.plant-table th,
+.plant-table td {
+  border-bottom: 1px dotted var(--line);
+}
+
+.plant-table thead th {
+  background: var(--paper-deep);
+  border-bottom: 1px solid var(--ink);
+  color: var(--ink-soft);
+}
+
+.plant-table tbody tr:hover {
+  background: rgba(255, 255, 255, .4);
+}
+
+.dot {
+  border-radius: 0;
+  transform: rotate(45deg);
+}
+
+/* ── 기타 ─────────────────────────────── */
+.empty,
+.error {
+  border: 1px dashed var(--line);
+  border-radius: 2px;
+  font-family: var(--lat);
+  font-style: italic;
+  font-size: 15px;
+  color: var(--ink-soft);
+}
+
+.error {
+  border-color: var(--rose);
+  background: var(--rose-soft);
+  color: var(--rose);
+}
+
+.hint {
+  font-family: var(--lat);
+  font-style: italic;
+  color: var(--ink-faint);
+}
+
+.modal-backdrop {
+  background: rgba(30, 24, 14, .5);
+}
+
+.modal-head {
+  border-bottom: 1px solid var(--ink);
+}
+
+.check-chip {
+  border-radius: 2px;
+  background: transparent;
+  color: var(--ink);
+}
+
+.sidenav-plate svg {
+  width: 96px;
+  height: auto;
+}
+
+@media (max-width: 980px) {
+  .sidenav-plate {
+    display: none;
+  }
+}
+
+.plant-list-name {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.plant-list-name .latin {
+  font-size: 13px;
+  color: var(--ink-faint);
+}
+
+.h2-latin {
+  margin-left: 10px;
+  font-size: 17px;
+  font-weight: 400;
+}
+
+.tag.latin {
+  color: var(--ink-soft);
+}
+
+/* ── 테마 보정 ─────────────────────────────────────────────
+   Cormorant의 기본 숫자는 소문자 높이(old-style)라 "0"이 "o"처럼 보인다.
+   숫자가 들어가는 곳은 전부 라이닝 숫자로 고정한다. */
+.lat,
+.latin,
+.meta,
+.stat-label,
+.stat-value,
+.sensor-label,
+.sensor-value,
+.pmetric strong,
+.pmetric-sub,
+.analysis-cards .metric strong,
+.bar-val,
+.bar-x,
+.day-num,
+.day-cell strong,
+.month-controls strong,
+.journal-body strong,
+.photo-caption-main .meta,
+.smallcaps,
+.chart-title,
+.weekday,
+.plant-table thead th,
+.sensor-age {
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+/* 나눔명조에는 이탤릭이 없어 한글에 기울임을 주면 합성돼 뭉개진다.
+   이탤릭은 라틴 학명에만 남기고 한글이 들어가는 곳은 전부 정체로 되돌린다. */
+.stat-value em,
+.pmetric-sub,
+.pcard-meta,
+.sensor-note,
+.warn-note,
+.water-date-note,
+.empty,
+.error,
+.hint,
+.sensor-age,
+.tag,
+.tag.auto,
+.sidenav-plate .latin {
+  font-style: normal;
+}
+
+.latin,
+.tag.latin,
+.sidenav-plate .latin,
+.h2-latin,
+.plant-list-name .latin {
+  font-style: italic;
+}
+
+/* 한글이 주가 되는 보조 문구는 명조로 */
+.pmetric-sub,
+.pcard-meta,
+.sensor-note,
+.warn-note,
+.water-date-note,
+.empty,
+.error,
+.hint,
+.tag,
+.stat-value em {
+  font-family: var(--kr);
+}
+
+.empty,
+.error,
+.hint {
+  font-size: 14px;
+}
+
+.tag {
+  font-size: 13px;
+}
+
+/* 카드 지표: 날짜를 '09 · 01' 짧은 꼴로 보여 한 줄에 맞춘다(마크업에서 변환) */
+.pmetric strong {
+  white-space: nowrap;
+  font-size: 19px;
+}
+
+.stat-value em {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
 }
