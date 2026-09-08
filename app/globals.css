@@ -3495,7 +3495,9 @@ body {
 
 .panel,
 .pcard,
-.stats,
+/* 그림자는 낱장 카드(.stat)에 준다. 묶음(.stats)은 배경이 투명이라
+   그림자만 남아 카드 아래에 띠처럼 깔리고, 칸 사이 틈까지 이어져 선으로 보였다. */
+.stat,
 .dash-bar,
 .photo-card,
 .plate-figure,
