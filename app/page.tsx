@@ -517,6 +517,7 @@ export default function Page() {
   >(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const plateInputRef = useRef<HTMLInputElement>(null);
+  const dateInputRef = useRef<HTMLInputElement>(null);
   const [selectedDate, setSelectedDate] = useState(today);
   const [calendarMonth, setCalendarMonth] = useState(today.slice(0, 7));
   const [loading, setLoading] = useState(true);
@@ -821,6 +822,23 @@ export default function Page() {
         ? prev.plant_names.filter((name) => name !== plantName)
         : [...prev.plant_names, plantName],
     }));
+  }
+
+  /** 헤더의 달력 버튼. 숨겨둔 날짜 입력의 브라우저 달력을 연다. */
+  function openDatePicker() {
+    const input = dateInputRef.current;
+    if (!input) return;
+    // showPicker는 크롬·사파리 16+에서 되고, 안 되는 곳은 포커스+클릭으로 연다.
+    if ("showPicker" in input) {
+      try {
+        (input as HTMLInputElement & { showPicker: () => void }).showPicker();
+        return;
+      } catch {
+        // 사용자 동작 밖이거나 미지원이면 아래로
+      }
+    }
+    input.focus();
+    input.click();
   }
 
   /** 대시보드에서 식물을 고르면 그 식물의 분석·기록 화면으로 넘어간다. */
@@ -1346,45 +1364,86 @@ export default function Page() {
             <div className="eyebrow">
               <Sprout size={16} />
               Hortus Domesticus
-              {mounted && <span className="eyebrow-date">{koreanDate(today)}</span>}
             </div>
             <h1>J&rsquo;s Smart Farm</h1>
           </div>
-          <div className="actions">
-            {/* 자리를 거의 안 쓰면서 어느 탭에서든 보이도록 헤더에 둔다. */}
+          <div className="actions instruments">
+            {/* 센서: 연결됐으면 초록 테두리, 끊겼으면 붉은 테두리. 값만 보인다. */}
             <div
-              className={`sensor-chip ${balconyReading ? (balconyStale ? "stale" : "live") : "idle"}`}
+              className={`sensor-chip ${balconyReading && !balconyStale ? "live" : "stale"}`}
               title={
                 balconyReading
                   ? balconyStale
-                    ? `마지막 수신이 ${SENSOR_STALE_HOURS}시간을 넘어 급수 주기 계산에서 제외했습니다. ESP32 전원과 Wi-Fi를 확인하세요.`
-                    : `ESP32 수신값 · ${localStamp(balconyReading.recorded_at)}`
+                    ? `마지막 수신 ${balconyAge === null ? "시각 불명" : formatAge(balconyAge)}. ${SENSOR_STALE_HOURS}시간을 넘어 급수 주기 계산에서 제외했습니다. ESP32 전원과 Wi-Fi를 확인하세요.`
+                    : `ESP32 연결됨 · ${localStamp(balconyReading.recorded_at)}`
                   : "아직 수신된 센서값이 없습니다."
               }
             >
               <span className="sensor-chip-loc">
                 <Home size={13} /> 베란다
               </span>
-              {balconyReading ? (
-                <>
-                  <span className="sensor-chip-vals">
+              <span className="sensor-chip-vals">
+                {balconyReading ? (
+                  <>
                     <b>{balconyReading.temperature_c}&deg;C</b>
                     <b>{balconyReading.humidity_pct}%</b>
                     <b>{balconyReading.light_lux}lx</b>
-                  </span>
-                  <span className="sensor-chip-age">
-                    {balconyStale ? <AlertTriangle size={12} /> : <Activity size={12} />}
-                    {balconyAge === null ? "시각 불명" : formatAge(balconyAge)}
-                  </span>
-                </>
-              ) : (
-                <span className="sensor-chip-age">대기 중</span>
-              )}
+                  </>
+                ) : (
+                  <b className="sensor-chip-idle">대기 중</b>
+                )}
+              </span>
             </div>
 
-            <button className="btn" onClick={loadAll} disabled={loading}>
-              <RefreshCw size={16} />
-              새로고침
+            {/* 물 준 날짜. ‹ ›로 하루씩, 달력으로 멀리. 브라우저에 붙은 뒤에만 그려
+                서버 시계(UTC)로 그린 날짜가 잠깐 보이지 않게 한다. */}
+            {mounted && (
+              <div className={`date-chip ${waterDate === today ? "" : "past"}`} title="물주기를 누를 때 기록될 날짜">
+                <button
+                  type="button"
+                  className="date-step"
+                  onClick={() => setWaterDate(addDays(waterDate, -1))}
+                  aria-label="하루 전"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                <button type="button" className="date-label" onClick={openDatePicker} aria-label="달력에서 날짜 고르기">
+                  <span className="date-label-rel">
+                    {waterDate === today
+                      ? "오늘"
+                      : waterDate === yesterday
+                        ? "어제"
+                        : `${dateDiff(today, waterDate)}일 전`}
+                  </span>
+                  <span className="date-label-abs">{koreanDate(waterDate)}</span>
+                </button>
+                <button
+                  type="button"
+                  className="date-step"
+                  disabled={waterDate >= today}
+                  onClick={() => setWaterDate(addDays(waterDate, 1))}
+                  aria-label="하루 뒤"
+                >
+                  <ChevronRight size={16} />
+                </button>
+                <button type="button" className="date-step date-cal" onClick={openDatePicker} aria-label="달력">
+                  <CalendarDays size={15} />
+                </button>
+                <input
+                  ref={dateInputRef}
+                  className="date-hidden"
+                  type="date"
+                  max={today}
+                  value={waterDate}
+                  tabIndex={-1}
+                  aria-hidden="true"
+                  onChange={(event) => setWaterDate(event.target.value || today)}
+                />
+              </div>
+            )}
+
+            <button className="icon-btn refresh-btn" onClick={loadAll} disabled={loading} title="새로고침" aria-label="새로고침">
+              <RefreshCw size={15} />
             </button>
           </div>
         </div>
@@ -1474,35 +1533,8 @@ export default function Page() {
 
           {activeTab === "dashboard" && (
             <section className="dash">
-              <div className={`dash-bar ${waterDate === today ? "" : "past"}`}>
+              <div className="dash-bar">
                 <div className="dash-bar-row">
-                  <div className="dash-field">
-                    <span className="meta">물 준 날짜</span>
-                    <div className="water-date-controls">
-                      <button
-                        type="button"
-                        className={`daychip ${waterDate === today ? "on" : ""}`}
-                        onClick={() => setWaterDate(today)}
-                      >
-                        오늘
-                      </button>
-                      <button
-                        type="button"
-                        className={`daychip ${waterDate === yesterday ? "on" : ""}`}
-                        onClick={() => setWaterDate(yesterday)}
-                      >
-                        어제
-                      </button>
-                      <input
-                        className="input"
-                        type="date"
-                        max={today}
-                        value={waterDate}
-                        onChange={(event) => setWaterDate(event.target.value || today)}
-                      />
-                    </div>
-                  </div>
-
                   <label className="dash-field">
                     <span className="meta">검색</span>
                     <input
@@ -1521,13 +1553,6 @@ export default function Page() {
                     </select>
                   </label>
                 </div>
-
-                {waterDate !== today && (
-                  <p className="water-date-note">
-                    <AlertTriangle size={14} />
-                    지금 누르는 &lsquo;물주기&rsquo;는 <strong>{waterDate}</strong> 기록으로 저장됩니다.
-                  </p>
-                )}
               </div>
 
               {loading ? (
