@@ -7,6 +7,7 @@ import {
   AlertTriangle,
   BarChart3,
   CalendarDays,
+  Check,
   CheckCircle,
   ChevronLeft,
   ChevronRight,
@@ -375,7 +376,12 @@ function getMonthDays(month: string) {
   const start = new Date(first);
   start.setDate(first.getDate() - first.getDay());
 
-  return Array.from({ length: 42 }, (_, index) => {
+  // 늘 여섯 줄(42칸)을 그리면 9월처럼 짧은 달에서 다음 달 날짜만 있는 줄이
+  // 통째로 남아 달력이 화면 밖으로 밀렸다. 이 달을 덮는 데 필요한 주만 그린다.
+  const daysInMonth = new Date(year, monthNumber, 0).getDate();
+  const cells = Math.ceil((first.getDay() + daysInMonth) / 7) * 7;
+
+  return Array.from({ length: cells }, (_, index) => {
     const day = new Date(start);
     day.setDate(start.getDate() + index);
     return {
@@ -519,7 +525,10 @@ export default function Page() {
   const [selectedPlantId, setSelectedPlantId] = useState("");
   const [settingsPlantId, setSettingsPlantId] = useState<string | null>(null);
   const [newPlant, setNewPlant] = useState(blankPlant);
-  const [bulkLog, setBulkLog] = useState({ plant_names: [] as string[], memo: "" });
+  // 캘린더 팝업의 기록 폼. 기록 탭 폼과 상태를 나눠 서로의 입력이 지워지지 않게 한다.
+  const [dayDraft, setDayDraft] = useState({ plantId: "", note: "" });
+  const [pendingDayPhoto, setPendingDayPhoto] = useState<{ image: string; thumb: string; name: string } | null>(null);
+  const dayFileRef = useRef<HTMLInputElement>(null);
   // 촬영일은 캘린더의 selectedDate와 분리해야 한다. 같이 쓰면 사진 촬영일을 바꾼 뒤
   // 캘린더에서 남기는 급수 기록까지 그 날짜로 저장된다.
   const [photoDraft, setPhotoDraft] = useState({ plantId: "", note: "", capturedAt: "" });
@@ -641,7 +650,8 @@ export default function Page() {
 
   // 사진 목록은 썸네일이라도 무거우므로 사진 탭을 처음 열 때만 가져온다.
   useEffect(() => {
-    if (activeTab !== "photos" || photosLoaded) return;
+    // 캘린더 팝업도 그날의 기록을 보여주므로 여기서도 필요하다.
+    if ((activeTab !== "photos" && activeTab !== "calendar") || photosLoaded) return;
     reloadPhotos();
   }, [activeTab, photosLoaded]);
 
@@ -757,6 +767,7 @@ export default function Page() {
   const monthDays = useMemo(() => getMonthDays(calendarMonth), [calendarMonth]);
   const selectedDateLogs = logsByDate[selectedDate] ?? [];
   const selectedDateMemos = memosByDate[selectedDate] ?? [];
+  const selectedDatePhotos = photos.filter((photo) => photo.captured_at === selectedDate);
 
   async function addPlant(event: FormEvent) {
     event.preventDefault();
@@ -786,48 +797,6 @@ export default function Page() {
     });
   }
 
-  async function saveDayRecord(event: FormEvent) {
-    event.preventDefault();
-    const hasPlants = bulkLog.plant_names.length > 0;
-    const memo = bulkLog.memo.trim();
-
-    if (!hasPlants && !memo) {
-      window.alert("식물을 선택하거나, 메모를 입력해주세요.");
-      return;
-    }
-
-    await run("day-record", async () => {
-      if (hasPlants) {
-        const data = await fetchJson<{ logs: WateringLog[] }>("/api/watering-logs", {
-          method: "POST",
-          body: JSON.stringify({
-            plant_names: bulkLog.plant_names,
-            watered_at: selectedDate,
-            memo,
-          }),
-        });
-        setLogs((prev) => [...data.logs, ...prev]);
-      } else {
-        const data = await fetchJson<{ memo: DayMemo }>("/api/day-memos", {
-          method: "POST",
-          body: JSON.stringify({ entry_date: selectedDate, content: memo }),
-        });
-        setMemos((prev) => [data.memo, ...prev]);
-      }
-
-      setBulkLog({ plant_names: [], memo: "" });
-    });
-  }
-
-  function toggleBulkPlant(plantName: string) {
-    setBulkLog((prev) => ({
-      ...prev,
-      plant_names: prev.plant_names.includes(plantName)
-        ? prev.plant_names.filter((name) => name !== plantName)
-        : [...prev.plant_names, plantName],
-    }));
-  }
-
   /** 헤더의 달력 버튼. 숨겨둔 날짜 입력의 브라우저 달력을 연다. */
   function openDatePicker() {
     const input = dateInputRef.current;
@@ -845,7 +814,62 @@ export default function Page() {
     input.click();
   }
 
-  /** 분석 화면의 기록 카드. 이 식물을 골라둔 채 기록 탭으로 넘어간다. */
+  async function onDayFileChange(file: File | null) {
+    setPendingDayPhoto(null);
+    if (!file) return;
+
+    await run("day-prepare", async () => {
+      try {
+        const prepared = await preparePhoto(file);
+        setPendingDayPhoto({ ...prepared, name: file.name });
+      } finally {
+        if (dayFileRef.current) dayFileRef.current.value = "";
+      }
+    });
+  }
+
+  /**
+   * 캘린더 팝업에서 남기는 기록. 기록 탭과 같은 곳(plant_photos)에 저장한다.
+   * 예전에는 여기서만 day_memos로 따로 새 메모가 생겨, 같은 날 기록이 두 군데로 갈렸다.
+   */
+  async function submitDayRecord(event: FormEvent) {
+    event.preventDefault();
+
+    const note = dayDraft.note.trim();
+    if (!note && !pendingDayPhoto) {
+      window.alert("메모를 쓰거나 사진을 넣어주세요.");
+      return;
+    }
+
+    const plantId = dayDraft.plantId || null;
+    await run("day-record", async () => {
+      const data = await fetchJson<{ photo: PlantPhoto }>("/api/plant-photos", {
+        method: "POST",
+        body: JSON.stringify({
+          plant_id: plantId,
+          image_url: pendingDayPhoto?.image ?? null,
+          thumb_url: pendingDayPhoto?.thumb ?? null,
+          note,
+          captured_at: selectedDate,
+        }),
+      });
+
+      const insert = (prev: PlantPhoto[]) =>
+        prev.some((item) => item.id === data.photo.id) ? prev : sortEntries([data.photo, ...prev]);
+
+      setPhotos(insert);
+      setEntriesPlantId((current) => {
+        if (data.photo.plant_id && data.photo.plant_id === current) setEntries(insert);
+        return current;
+      });
+
+      setDayDraft({ plantId: dayDraft.plantId, note: "" });
+      setPendingDayPhoto(null);
+      if (dayFileRef.current) dayFileRef.current.value = "";
+    });
+  }
+
+  /** 분석 화면의 기록 카드.  /** 분석 화면의 기록 카드. 이 식물을 골라둔 채 기록 탭으로 넘어간다. */
   function openRecordFor(plantId: string) {
     setPhotoDraft((prev) => ({ ...prev, plantId }));
     setActiveTab("photos");
@@ -858,18 +882,30 @@ export default function Page() {
   }
 
   async function quickWater(plant: PlantModel) {
+    await waterPlantOn(plant, waterDate);
+  }
+
+  /** 그 날짜로 급수 기록을 남긴다. 관리판과 캘린더 팝업이 함께 쓴다. */
+  async function waterPlantOn(plant: PlantModel, date: string) {
     await run(`water:${plant.id}`, async () => {
       const data = await fetchJson<{ log: WateringLog }>("/api/watering-logs", {
         method: "POST",
         body: JSON.stringify({
           plant_name: plant.name,
-          watered_at: waterDate,
+          watered_at: date,
           // 어디서 눌렀는지는 기록할 값이 아니다. 메모는 사용자가 쓴 것만 남긴다.
           memo: "",
         }),
       });
       setLogs((prev) => [data.log, ...prev]);
     });
+  }
+
+  /** 팝업에서 식물 하나를 눌렀을 때. 안 준 날이면 남기고, 준 날이면 취소한다. */
+  async function toggleWaterOn(plant: PlantModel, date: string) {
+    const watered = plant.logs.some((log) => log.watered_at.slice(0, 10) === date);
+    if (watered) await cancelWateringOn(plant, date);
+    else await waterPlantOn(plant, date);
   }
 
   async function deleteWateringLog(log: WateringLog) {
@@ -1843,68 +1879,165 @@ export default function Page() {
             <div className="modal-backdrop" onClick={() => setDayOpen(false)}>
               <div className="modal day-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
                 <div className="modal-head">
-                  <h2>{selectedDate}</h2>
+                  <h2>{koreanDate(selectedDate)}</h2>
+                  <span className="meta day-modal-iso">{selectedDate}</span>
                   <button className="icon-btn" onClick={() => setDayOpen(false)} aria-label="닫기"><X size={16} /></button>
                 </div>
                 <div className="modal-body day-detail">
-                  <div className="meta day-modal-count">
-                    급수 {selectedDateLogs.length} · 메모 {selectedDateMemos.length}
-                  </div>
-
-                  <div className="calendar-items">
-                    {selectedDateLogs.map((log) => (
-                      <div className="calendar-item" key={log.id}>
-                        <div>
-                          <strong><Droplets size={14} /> {log.plant_name}</strong>
-                          {(logNote(log) || log.source === "automation") && (
-                            <span>{logNote(log) || "자동"}</span>
-                          )}
-                        </div>
-                        <button className="icon-btn danger" onClick={() => deleteWateringLog(log)} title="기록 취소">
-                          <Trash2 size={15} />
-                        </button>
-                      </div>
-                    ))}
-                    {selectedDateMemos.map((memo) => (
-                      <div className="calendar-item memo-item" key={memo.id}>
-                        <div>
-                          <strong><StickyNote size={14} /> 메모</strong>
-                          <span>{memo.content}</span>
-                        </div>
-                        <button className="icon-btn danger" onClick={() => deleteDayMemo(memo)} title="메모 삭제">
-                          <Trash2 size={15} />
-                        </button>
-                      </div>
-                    ))}
-                    {selectedDateLogs.length === 0 && selectedDateMemos.length === 0 && (
-                      <div className="empty compact-empty">이 날의 기록이 없습니다.</div>
-                    )}
-                  </div>
-
-                  <form className="form-grid day-add-form" onSubmit={saveDayRecord}>
-                    <div className="meta">이 날짜에 기록 추가</div>
-                    <div className="check-list compact">
-                      {plants.map((plant) => (
-                        <label key={plant.id} className="check-chip">
-                          <input
-                            type="checkbox"
-                            checked={bulkLog.plant_names.includes(plant.name)}
-                            onChange={() => toggleBulkPlant(plant.name)}
-                          />
-                          <span>{plant.name}</span>
-                        </label>
-                      ))}
+                  {/* 1. 물 준 식물. 눌러서 바로 남기고 바로 취소한다. */}
+                  <section className="day-sec">
+                    <div className="day-sec-head">
+                      <span className="day-sec-title"><Droplets size={14} /> 물 준 식물</span>
+                      <span className="meta">{selectedDateLogs.length}건</span>
                     </div>
-                    <textarea
-                      className="input textarea"
-                      placeholder="메모 (식물을 선택하면 급수 기록 메모로, 선택 안 하면 메모만 저장돼요)"
-                      value={bulkLog.memo}
-                      onChange={(event) => setBulkLog({ ...bulkLog, memo: event.target.value })}
-                    />
-                    <button className="btn primary" type="submit">
-                      <Plus size={16} /> 기록 저장
-                    </button>
-                  </form>
+                    <div className="water-picker">
+                      {model.map((plant) => {
+                        const dayLogs = plant.logs.filter((log) => log.watered_at.slice(0, 10) === selectedDate);
+                        const on = dayLogs.length > 0;
+                        const auto = dayLogs.some((log) => log.source === "automation");
+                        return (
+                          <button
+                            type="button"
+                            key={plant.id}
+                            className={`water-chip ${on ? "on" : ""}`}
+                            disabled={isBusy(`water:${plant.id}`)}
+                            title={
+                              on
+                                ? `${plant.name} — ${auto ? "자동급수" : "기록 있음"}. 누르면 취소합니다.`
+                                : `${plant.name} — 누르면 이 날짜로 급수 기록을 남깁니다.`
+                            }
+                            onClick={() => toggleWaterOn(plant, selectedDate)}
+                          >
+                            {on ? <Check size={13} /> : <Droplets size={13} />}
+                            <span>{plant.name}</span>
+                            {auto && <em>자동</em>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </section>
+
+                  {/* 2. 그날의 기록. 사진이든 메모든 기록 탭과 같은 곳에 쌓인다. */}
+                  <section className="day-sec">
+                    <div className="day-sec-head">
+                      <span className="day-sec-title"><StickyNote size={14} /> 그날의 기록</span>
+                      <span className="meta">{selectedDatePhotos.length + selectedDateMemos.length}건</span>
+                    </div>
+
+                    {selectedDatePhotos.length + selectedDateMemos.length > 0 && (
+                      <div className="day-records">
+                        {selectedDatePhotos.map((photo) => (
+                          <div className="day-record" key={photo.id}>
+                            {photo.has_image && photo.thumb_url ? (
+                              <button
+                                type="button"
+                                className="day-record-thumb"
+                                title="크게 보기"
+                                onClick={() => openPhoto(photo)}
+                              >
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src={photo.thumb_url} alt={photo.plant_name ?? "기록 사진"} loading="lazy" />
+                              </button>
+                            ) : (
+                              <span className="day-record-thumb note-only"><StickyNote size={14} /></span>
+                            )}
+                            <div className="day-record-body">
+                              <strong>{photo.plant_name ?? "전체"}</strong>
+                              {photo.note && <p>{photo.note}</p>}
+                            </div>
+                            <button
+                              className="icon-btn danger sm"
+                              title="기록 삭제"
+                              disabled={isBusy(`photo:${photo.id}`)}
+                              onClick={() => deletePhoto(photo)}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        ))}
+
+                        {selectedDateMemos.map((memo) => (
+                          <div className="day-record" key={memo.id}>
+                            <span className="day-record-thumb note-only"><StickyNote size={14} /></span>
+                            <div className="day-record-body">
+                              <strong>메모</strong>
+                              <p>{memo.content}</p>
+                            </div>
+                            <button className="icon-btn danger sm" title="메모 삭제" onClick={() => deleteDayMemo(memo)}>
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <form className="day-form" onSubmit={submitDayRecord}>
+                      <div className="day-form-top">
+                        <label className="field">
+                          <span className="meta">식물 (선택)</span>
+                          <select
+                            className="select"
+                            value={dayDraft.plantId}
+                            onChange={(event) => setDayDraft({ ...dayDraft, plantId: event.target.value })}
+                          >
+                            <option value="">특정 식물 아님</option>
+                            {model.map((plant) => (
+                              <option key={plant.id} value={plant.id}>{plant.name}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="field">
+                          <span className="meta">사진 (선택)</span>
+                          <input
+                            ref={dayFileRef}
+                            className="input file-input"
+                            type="file"
+                            accept="image/*"
+                            disabled={isBusy("day-prepare") || isBusy("day-record")}
+                            onChange={(event) => onDayFileChange(event.target.files?.[0] ?? null)}
+                          />
+                        </label>
+                      </div>
+
+                      {isBusy("day-prepare") && <div className="photo-preview-note">사진을 줄이는 중…</div>}
+
+                      {pendingDayPhoto && (
+                        <div className="photo-preview">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={pendingDayPhoto.thumb} alt="선택한 사진 미리보기" />
+                          <div className="photo-preview-body">
+                            <strong>{pendingDayPhoto.name}</strong>
+                            <button
+                              type="button"
+                              className="btn sm"
+                              onClick={() => {
+                                setPendingDayPhoto(null);
+                                if (dayFileRef.current) dayFileRef.current.value = "";
+                              }}
+                            >
+                              <X size={14} /> 사진 빼기
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      <textarea
+                        className="input textarea"
+                        placeholder="이 날 있었던 일 …"
+                        maxLength={500}
+                        value={dayDraft.note}
+                        onChange={(event) => setDayDraft({ ...dayDraft, note: event.target.value })}
+                      />
+
+                      <button
+                        className="btn primary"
+                        type="submit"
+                        disabled={isBusy("day-record") || isBusy("day-prepare")}
+                      >
+                        <Plus size={16} /> {isBusy("day-record") ? "저장 중…" : "기록 저장"}
+                      </button>
+                    </form>
+                  </section>
                 </div>
               </div>
             </div>
