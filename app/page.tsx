@@ -1419,9 +1419,9 @@ export default function Page() {
               title={
                 balconyReading
                   ? balconyStale
-                    ? `베란다 센서. 마지막 수신 ${balconyAge === null ? "시각 불명" : formatAge(balconyAge)}. ${SENSOR_STALE_HOURS}시간을 넘어 급수 주기 계산에서 제외했습니다. ESP32 전원과 Wi-Fi를 확인하세요.`
-                    : `베란다 센서 연결됨 · ${localStamp(balconyReading.recorded_at)}`
-                  : "베란다 센서가 아직 값을 보내지 않았습니다."
+                    ? `센서 마지막 수신 ${balconyAge === null ? "시각 불명" : formatAge(balconyAge)}. ${SENSOR_STALE_HOURS}시간을 넘어 급수 주기 계산에서 제외했습니다. ESP32 전원과 Wi-Fi를 확인하세요.`
+                    : `센서 연결됨 · ${localStamp(balconyReading.recorded_at)}`
+                  : "센서가 아직 값을 보내지 않았습니다."
               }
             >
               <Home size={13} className="sensor-chip-mark" />
@@ -2153,7 +2153,7 @@ export default function Page() {
                     <span className="meta">메모</span>
                     <textarea
                       className="input textarea"
-                      placeholder="오늘 베란다 정리함 / 새 화분 들임 / 물 준 뒤 잎이 폈다 …"
+                      placeholder="오늘 화분 정리함 / 새 화분 들임 / 물 준 뒤 잎이 폈다 …"
                       maxLength={500}
                       value={photoDraft.note}
                       onChange={(event) => setPhotoDraft({ ...photoDraft, note: event.target.value })}
