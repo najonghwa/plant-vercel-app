@@ -1366,6 +1366,26 @@ export default function Page() {
             <h1>J&rsquo;s Smart Farm</h1>
           </div>
           <div className="actions instruments">
+            {/* 집계(물 줘야 할 것). 날짜 왼쪽에 둔다 — 사용자 요청. 낱말이 어색해 라틴 약어. */}
+            <div className="tally">
+              <span className="tally-item late" title={`늦음: ${listPlantNames(dangerPlants)}`}>
+                <em>Late</em>
+                <b>{overdue}</b>
+              </span>
+              <span className="tally-item today" title={`오늘: ${listPlantNames(todayPlants)}`}>
+                <em>Today</em>
+                <b>{dueToday}</b>
+              </span>
+              <span className="tally-item soon" title={`이틀 안: ${listPlantNames(soonPlants)}`}>
+                <em>Soon</em>
+                <b>{soon}</b>
+              </span>
+              <span className="tally-item done" title={`오늘 준 기록 ${wateredToday}건 · 모두 ${model.length}종`}>
+                <em>Done</em>
+                <b>{wateredToday}</b>
+              </span>
+            </div>
+
             {/* 물 준 날짜. ‹ ›로 하루씩, 달력으로 멀리. 브라우저에 붙은 뒤에만 그려
                 서버 시계(UTC)로 그린 날짜가 잠깐 보이지 않게 한다. */}
             {mounted && (
@@ -1435,26 +1455,6 @@ export default function Page() {
                 ) : (
                   <b className="sensor-chip-idle">대기 중</b>
                 )}
-              </span>
-            </div>
-
-            {/* 집계. 낱말이 어색해 라틴 약어로 둔다. 자세한 이름은 툴팁. */}
-            <div className="tally">
-              <span className="tally-item late" title={`늦음: ${listPlantNames(dangerPlants)}`}>
-                <em>Late</em>
-                <b>{overdue}</b>
-              </span>
-              <span className="tally-item today" title={`오늘: ${listPlantNames(todayPlants)}`}>
-                <em>Today</em>
-                <b>{dueToday}</b>
-              </span>
-              <span className="tally-item soon" title={`이틀 안: ${listPlantNames(soonPlants)}`}>
-                <em>Soon</em>
-                <b>{soon}</b>
-              </span>
-              <span className="tally-item done" title={`오늘 준 기록 ${wateredToday}건 · 모두 ${model.length}종`}>
-                <em>Done</em>
-                <b>{wateredToday}</b>
               </span>
             </div>
 
