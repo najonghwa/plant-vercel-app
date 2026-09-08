@@ -331,12 +331,16 @@ function buildPlantModel(
   });
 }
 
+/**
+ * 남은 날을 부호 붙인 숫자로 준다. -1은 하루 늦음, +0은 오늘, +3은 사흘 남음.
+ * 낱말("곧 물주기")보다 짧고, 카드마다 폭이 흔들리지 않는다.
+ */
 function statusFor(dday: number | null) {
-  if (dday === null) return { label: "기록 없음", className: "ok" };
-  if (dday < 0) return { label: `${Math.abs(dday)}일 지남`, className: "late" };
-  if (dday === 0) return { label: "오늘 물주기", className: "soon" };
-  if (dday <= 2) return { label: "곧 물주기", className: "soon" };
-  return { label: "여유 있음", className: "ok" };
+  if (dday === null) return { label: "—", className: "ok", full: "급수 기록 없음" };
+  if (dday < 0) return { label: String(dday), className: "late", full: `${Math.abs(dday)}일 지났습니다` };
+  if (dday === 0) return { label: "+0", className: "soon", full: "오늘 줄 차례입니다" };
+  if (dday <= 2) return { label: `+${dday}`, className: "soon", full: `${dday}일 남았습니다` };
+  return { label: `+${dday}`, className: "ok", full: `${dday}일 남았습니다` };
 }
 
 function listPlantNames(plants: PlantModel[]) {
@@ -495,7 +499,6 @@ export default function Page() {
   const entryInputRef = useRef<HTMLInputElement>(null);
   const [photosLoaded, setPhotosLoaded] = useState(false);
   const [photosError, setPhotosError] = useState("");
-  const [sort, setSort] = useState<"priority" | "name">("priority");
   // 대시보드에서 '물주기'를 누를 때 기록될 날짜. 기본은 오늘이고, 어제 준 것을
   // 뒤늦게 기록할 때 캘린더 탭까지 들어가지 않아도 되게 한다.
   // 캘린더의 selectedDate와는 따로 둔다. 같이 쓰면 한쪽을 바꿀 때 다른 쪽이 끌려간다.
@@ -691,7 +694,8 @@ export default function Page() {
     () => buildPlantModel(plants, logs, readings, today, nowMs),
     [plants, logs, readings, today, nowMs],
   );
-  const selectedPlant = model.find((plant) => plant.id === selectedPlantId) ?? model[0] ?? null;
+  // 고른 게 없으면 목록을 보여준다. 예전처럼 첫 식물로 넘어가지 않는다.
+  const selectedPlant = model.find((plant) => plant.id === selectedPlantId) ?? null;
   const settingsPlant = model.find((plant) => plant.id === settingsPlantId) ?? null;
   const availableSensorDevices = useMemo(
     () => Array.from(new Set(readings.map((reading) => reading.device_id))).sort(),
@@ -705,11 +709,9 @@ export default function Page() {
   const balconyAge = sensorAgeHours(balconyReading, nowMs);
   const balconyStale = !isFresh(balconyReading, nowMs);
   const filtered = useMemo(() => {
-    return [...model].sort((a, b) => {
-      if (sort === "name") return a.name.localeCompare(b.name, "ko");
-      return (a.dday ?? 999) - (b.dday ?? 999);
-    });
-  }, [model, sort]);
+    // 급한 것부터. 고를 일이 없어 정렬 칸은 두지 않는다.
+    return [...model].sort((a, b) => (a.dday ?? 999) - (b.dday ?? 999));
+  }, [model]);
 
   const wateredToday = logs.filter((log) => log.watered_at.slice(0, 10) === today).length;
   const dangerPlants = model.filter((plant) => plant.dday !== null && plant.dday < 0);
@@ -1359,33 +1361,6 @@ export default function Page() {
             <h1>J&rsquo;s Smart Farm</h1>
           </div>
           <div className="actions instruments">
-            {/* 센서: 연결됐으면 초록 테두리, 끊겼으면 붉은 테두리. 값만 보인다. */}
-            <div
-              className={`sensor-chip ${balconyReading && !balconyStale ? "live" : "stale"}`}
-              title={
-                balconyReading
-                  ? balconyStale
-                    ? `마지막 수신 ${balconyAge === null ? "시각 불명" : formatAge(balconyAge)}. ${SENSOR_STALE_HOURS}시간을 넘어 급수 주기 계산에서 제외했습니다. ESP32 전원과 Wi-Fi를 확인하세요.`
-                    : `ESP32 연결됨 · ${localStamp(balconyReading.recorded_at)}`
-                  : "아직 수신된 센서값이 없습니다."
-              }
-            >
-              <span className="sensor-chip-loc">
-                <Home size={13} /> 베란다
-              </span>
-              <span className="sensor-chip-vals">
-                {balconyReading ? (
-                  <>
-                    <b>{balconyReading.temperature_c}&deg;C</b>
-                    <b>{balconyReading.humidity_pct}%</b>
-                    <b>{balconyReading.light_lux}lx</b>
-                  </>
-                ) : (
-                  <b className="sensor-chip-idle">대기 중</b>
-                )}
-              </span>
-            </div>
-
             {/* 물 준 날짜. ‹ ›로 하루씩, 달력으로 멀리. 브라우저에 붙은 뒤에만 그려
                 서버 시계(UTC)로 그린 날짜가 잠깐 보이지 않게 한다. */}
             {mounted && (
@@ -1432,6 +1407,51 @@ export default function Page() {
                 />
               </div>
             )}
+
+            {/* 센서: 연결됐으면 초록 테두리, 끊겼으면 붉은 테두리. 값만 보인다. */}
+            <div
+              className={`sensor-chip ${balconyReading && !balconyStale ? "live" : "stale"}`}
+              title={
+                balconyReading
+                  ? balconyStale
+                    ? `베란다 센서. 마지막 수신 ${balconyAge === null ? "시각 불명" : formatAge(balconyAge)}. ${SENSOR_STALE_HOURS}시간을 넘어 급수 주기 계산에서 제외했습니다. ESP32 전원과 Wi-Fi를 확인하세요.`
+                    : `베란다 센서 연결됨 · ${localStamp(balconyReading.recorded_at)}`
+                  : "베란다 센서가 아직 값을 보내지 않았습니다."
+              }
+            >
+              <Home size={13} className="sensor-chip-mark" />
+              <span className="sensor-chip-vals">
+                {balconyReading ? (
+                  <>
+                    <b>{balconyReading.temperature_c}&deg;C</b>
+                    <b>{balconyReading.humidity_pct}%</b>
+                    <b>{balconyReading.light_lux}lx</b>
+                  </>
+                ) : (
+                  <b className="sensor-chip-idle">대기 중</b>
+                )}
+              </span>
+            </div>
+
+            {/* 집계. 낱말이 어색해 라틴 약어로 둔다. 자세한 이름은 툴팁. */}
+            <div className="tally">
+              <span className="tally-item late" title={`늦음: ${listPlantNames(dangerPlants)}`}>
+                <em>Late</em>
+                <b>{overdue}</b>
+              </span>
+              <span className="tally-item today" title={`오늘: ${listPlantNames(todayPlants)}`}>
+                <em>Today</em>
+                <b>{dueToday}</b>
+              </span>
+              <span className="tally-item soon" title={`이틀 안: ${listPlantNames(soonPlants)}`}>
+                <em>Soon</em>
+                <b>{soon}</b>
+              </span>
+              <span className="tally-item done" title={`오늘 준 기록 ${wateredToday}건 · 모두 ${model.length}종`}>
+                <em>Done</em>
+                <b>{wateredToday}</b>
+              </span>
+            </div>
 
             <button className="icon-btn refresh-btn" onClick={loadAll} disabled={loading} title="새로고침" aria-label="새로고침">
               <RefreshCw size={15} />
@@ -1485,39 +1505,6 @@ export default function Page() {
         <div className="content-col">
           {error && <div className="error">{error}</div>}
 
-          {(activeTab === "dashboard" || activeTab === "status") && (
-          <section className="summary">
-            <div className="sum-item danger" title={listPlantNames(dangerPlants)}>
-              <span className="sum-label">위험</span>
-              <b>{overdue}</b>
-            </div>
-            <div className="sum-item today" title={listPlantNames(todayPlants)}>
-              <span className="sum-label">오늘</span>
-              <b>{dueToday}</b>
-            </div>
-            <div className="sum-item soon" title={listPlantNames(soonPlants)}>
-              <span className="sum-label">곧</span>
-              <b>{soon}</b>
-            </div>
-            <div className="sum-item done" title="오늘 물 준 횟수">
-              <span className="sum-label">완료</span>
-              <b>{wateredToday}</b>
-            </div>
-
-            <span className="sum-total">총 {model.length}종</span>
-
-            {activeTab === "dashboard" && (
-              <label className="sum-sort">
-                <span className="meta">정렬</span>
-                <select className="select" value={sort} onChange={(event) => setSort(event.target.value as typeof sort)}>
-                  <option value="priority">우선순위</option>
-                  <option value="name">이름순</option>
-                </select>
-              </label>
-            )}
-          </section>
-          )}
-
           {activeTab === "dashboard" && (
             <section className="dash">
               {loading ? (
@@ -1551,20 +1538,22 @@ export default function Page() {
                               <em className="latin">{latinNameFor(plant.name)}</em>
                             )}
                           </span>
-                          <span className={`status ${status.className}`}>{status.label}</span>
+                          <span className={`status ${status.className}`} title={status.full}>
+                            {status.label}
+                          </span>
                         </button>
 
                         <div className="pcard-line">
                           <span>
-                            마지막
+                            <em>Last</em>
                             <strong title={plant.lastWatered ?? undefined}>
-                              {plant.lastWatered ? shortDate(plant.lastWatered) : "없음"}
+                              {plant.lastWatered ? shortDate(plant.lastWatered) : "—"}
                             </strong>
                           </span>
                           <span>
-                            다음
+                            <em>Next</em>
                             <strong title={plant.nextDue ?? undefined}>
-                              {plant.nextDue ? shortDate(plant.nextDue) : "-"}
+                              {plant.nextDue ? shortDate(plant.nextDue) : "—"}
                             </strong>
                           </span>
                         </div>
@@ -1587,9 +1576,6 @@ export default function Page() {
                               <Droplets size={15} />{dateLabel} 물주기
                             </button>
                           )}
-                          <button className="icon-btn sm" title="설정" onClick={() => setSettingsPlantId(plant.id)}>
-                            <Settings size={14} />
-                          </button>
                           <button className="icon-btn danger sm" title="식물 삭제" onClick={() => deletePlant(plant)}>
                             <Trash2 size={14} />
                           </button>
@@ -1613,21 +1599,15 @@ export default function Page() {
                   <table className="plant-table">
                     <thead>
                       <tr>
-                        <th>알림</th>
+                        <th>D-day</th>
                         <th>식물</th>
                         <th>분류</th>
-                        <th>위치</th>
-                        <th>물 선호도</th>
-                        <th>햇빛 선호도</th>
-                        <th>마지막 물준 날</th>
-                        <th>지난일수</th>
-                        <th>평균주기</th>
-                        <th>분석주기</th>
-                        <th>다음예정일</th>
-                        <th>D-day</th>
-                        <th>상태</th>
+                        <th>구역</th>
+                        <th>마지막</th>
+                        <th>다음</th>
+                        <th>주기</th>
+                        <th>기록</th>
                         <th>메모</th>
-                        <th>기록수</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1635,7 +1615,11 @@ export default function Page() {
                         const status = statusFor(plant.dday);
                         return (
                           <tr key={plant.id}>
-                            <td><span className={`dot ${status.className}`} /></td>
+                            <td>
+                              <span className={`status ${status.className}`} title={status.full}>
+                                {status.label}
+                              </span>
+                            </td>
                             <td>
                               <button
                                 type="button"
@@ -1647,19 +1631,17 @@ export default function Page() {
                                 <ChevronRight size={13} />
                               </button>
                             </td>
-                            <td>{plant.category || "-"}</td>
+                            <td>{plant.category || "—"}</td>
                             <td>{plant.location}</td>
-                            <td>{plant.water_level}</td>
-                            <td>{plant.sunlight || "-"}</td>
-                            <td>{plant.lastWatered ?? "-"}</td>
-                            <td>{plant.lastWatered ? dateDiff(today, plant.lastWatered) : "-"}</td>
-                            <td>{plant.learnedInterval ?? "-"}</td>
-                            <td>{plant.interval}</td>
-                            <td>{plant.nextDue ?? "-"}</td>
-                            <td>{plant.dday ?? "-"}</td>
-                            <td>{status.label}</td>
-                            <td>{plant.care_note || plant.memo || "-"}</td>
+                            <td title={plant.lastWatered ?? undefined}>
+                              {plant.lastWatered ? shortDate(plant.lastWatered) : "—"}
+                            </td>
+                            <td title={plant.nextDue ?? undefined}>
+                              {plant.nextDue ? shortDate(plant.nextDue) : "—"}
+                            </td>
+                            <td>{plant.interval}일</td>
                             <td>{plant.logs.length}</td>
+                            <td className="cell-note">{plant.care_note || plant.memo || "—"}</td>
                           </tr>
                         );
                       })}
@@ -1670,36 +1652,51 @@ export default function Page() {
             </section>
           )}
 
-          {activeTab === "analysis" && (
-            <section className="tab-page analysis-layout">
+          {activeTab === "analysis" && !selectedPlant && (
+            <section className="tab-page">
               <div className="panel">
                 <div className="panel-title">
                   <h2><Activity size={18} /> 식물 분석</h2>
-                  <span className="meta">{model.length}종</span>
+                  <span className="meta">{model.length}종 &middot; 눌러서 자세히</span>
                 </div>
-                <div className="plant-list">
+
+                <div className="plant-picker">
                   {model.map((plant) => {
                     const status = statusFor(plant.dday);
                     return (
                       <button
                         key={plant.id}
-                        className={`plant-list-item ${selectedPlant?.id === plant.id ? "active" : ""}`}
+                        type="button"
+                        className="pick-item"
                         onClick={() => setSelectedPlantId(plant.id)}
                       >
-                        <span className="plant-list-name">
-                          <span>{plant.name}</span>
-                          {latinNameFor(plant.name) && <span className="latin">{latinNameFor(plant.name)}</span>}
+                        <span className="pick-art">
+                          <PlantArt name={plant.name} category={plant.category} />
                         </span>
-                        <span className={`status ${status.className}`}>{status.label}</span>
+                        <span className="pick-id">
+                          <strong>{plant.name}</strong>
+                          {latinNameFor(plant.name) && (
+                            <em className="latin">{latinNameFor(plant.name)}</em>
+                          )}
+                        </span>
+                        <span className={`status ${status.className}`} title={status.full}>
+                          {status.label}
+                        </span>
                       </button>
                     );
                   })}
                 </div>
               </div>
+            </section>
+          )}
 
-              {selectedPlant && (
-                <div className="panel">
-                  <div className="panel-title">
+          {activeTab === "analysis" && selectedPlant && (
+            <section className="tab-page">
+              <div className="panel">
+                  <div className="panel-title analysis-head">
+                    <button type="button" className="btn sm back-btn" onClick={() => setSelectedPlantId("")}>
+                      <ChevronLeft size={15} /> 목록
+                    </button>
                     <h2>
                       {selectedPlant.name}
                       {latinNameFor(selectedPlant.name) && (
@@ -1927,8 +1924,7 @@ export default function Page() {
                       </div>
                     ))}
                   </div>
-                </div>
-              )}
+              </div>
             </section>
           )}
 
@@ -1964,6 +1960,14 @@ export default function Page() {
                           className={`day-cell ${day.inMonth ? "" : "muted"} ${selectedDate === day.date ? "selected" : ""} ${day.date === today ? "today" : ""}`}
                           key={day.date}
                           onClick={() => setSelectedDate(day.date)}
+                          // 칸에는 세 종만 적히므로, 마우스를 올리면 그날 준 것을 전부 보여준다.
+                          title={
+                            dayNames.length
+                              ? `${day.date}\n물 준 식물 ${dayNames.length}종\n${dayNames.join(", ")}${memoCount ? `\n메모 ${memoCount}건` : ""}`
+                              : memoCount
+                                ? `${day.date}\n메모 ${memoCount}건`
+                                : day.date
+                          }
                         >
                           <span className="day-num">{Number(day.date.slice(-2))}</span>
                           {memoCount > 0 && <span className="diary-mark" title={`메모 ${memoCount}건`}>&dagger;</span>}
@@ -1975,7 +1979,7 @@ export default function Page() {
                                 </span>
                               ))}
                               {dayNames.length > 3 && (
-                                <span className="day-more">외 {dayNames.length - 3}종</span>
+                                <span className="day-more">&plus;{dayNames.length - 3}</span>
                               )}
                             </span>
                           )}
@@ -1995,7 +1999,7 @@ export default function Page() {
                     {selectedDateLogs.map((log) => (
                       <div className="calendar-item" key={log.id}>
                         <div>
-                          <strong>💧 {log.plant_name}</strong>
+                          <strong><Droplets size={14} /> {log.plant_name}</strong>
                           <span>{log.memo || (log.source === "automation" ? "자동급수" : "수동 기록")}</span>
                         </div>
                         <button className="icon-btn danger" onClick={() => deleteWateringLog(log)} title="기록 취소">
@@ -2006,7 +2010,7 @@ export default function Page() {
                     {selectedDateMemos.map((memo) => (
                       <div className="calendar-item memo-item" key={memo.id}>
                         <div>
-                          <strong>📝 메모</strong>
+                          <strong><StickyNote size={14} /> 메모</strong>
                           <span>{memo.content}</span>
                         </div>
                         <button className="icon-btn danger" onClick={() => deleteDayMemo(memo)} title="메모 삭제">

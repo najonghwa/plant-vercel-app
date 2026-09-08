@@ -3983,3 +3983,239 @@ body {
   margin-left: 4px;
   font-size: 14px;
 }
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   낱말 줄이기 · 표 줄이기 · 분석은 한 번에 하나 (2026-09-08)
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* 상태 도장: -1 · +0 · +3 */
+.status {
+  font-family: var(--lat);
+  font-variant: normal;
+  font-variant-numeric: lining-nums tabular-nums;
+  letter-spacing: .02em;
+  font-size: 14px;
+  font-weight: 600;
+  min-width: 34px;
+  text-align: center;
+  padding: 2px 7px;
+}
+
+.plant-table .status,
+.pick-item .status {
+  font-size: 13px;
+  min-width: 32px;
+}
+
+/* 카드 한 줄 요약: 라벨은 라틴 소문자 대문자꼴 */
+.pcard-line em {
+  font-family: var(--lat);
+  font-variant: small-caps;
+  letter-spacing: .12em;
+  font-style: normal;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+/* 헤더 집계 */
+.tally {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: rgba(255, 255, 255, .38);
+  box-shadow: var(--lift-1);
+}
+
+.tally-item {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 1px;
+  padding: 0 13px;
+  cursor: default;
+}
+
+.tally-item + .tally-item {
+  border-left: 1px solid var(--paper-line);
+}
+
+.tally-item em {
+  font-family: var(--lat);
+  font-variant: small-caps;
+  letter-spacing: .12em;
+  font-style: normal;
+  font-size: 10.5px;
+  color: var(--ink-faint);
+}
+
+.tally-item b {
+  font-family: var(--lat);
+  font-variant-numeric: lining-nums;
+  font-size: 17px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.tally-item.late b { color: var(--rose); }
+.tally-item.today b { color: var(--amber); }
+.tally-item.soon b { color: var(--green); }
+
+/* 센서 칸에서 지역 이름을 뺐다. 집 표시만 남긴다. */
+.sensor-chip-mark {
+  color: var(--ink-faint);
+  flex: none;
+}
+
+.sensor-chip.live .sensor-chip-mark { color: var(--green); }
+.sensor-chip.stale .sensor-chip-mark { color: var(--rose); }
+
+/* 전체 현황 표: 아홉 칸으로 줄여 한 화면에 */
+.plant-table {
+  min-width: 0;
+  font-size: 13px;
+}
+
+.plant-table th,
+.plant-table td {
+  padding: 7px 10px;
+  white-space: nowrap;
+}
+
+.cell-note {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 분석: 목록은 넓게, 상세는 통째로 */
+.plant-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(228px, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.pick-item {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: rgba(255, 255, 255, .4);
+  box-shadow: var(--lift-1);
+  padding: 9px 11px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .12s, transform .12s;
+}
+
+.pick-item:hover {
+  border-color: var(--ink);
+  transform: translateY(-1px);
+}
+
+.pick-art {
+  display: block;
+  width: 34px;
+  color: var(--ink);
+}
+
+.pick-id {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.pick-id strong {
+  font-family: var(--kr);
+  font-size: 15px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.pick-id .latin {
+  font-size: 11.5px;
+  font-style: italic;
+}
+
+.analysis-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.analysis-head h2 {
+  margin-right: auto;
+}
+
+.back-btn {
+  flex: none;
+}
+
+/* 급수 기록은 작게. 날짜만 알면 되는 줄이 스물 몇 개씩 쌓인다. */
+.log-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 6px;
+}
+
+.log-list .calendar-item {
+  gap: 6px;
+  padding: 5px 8px;
+  font-size: 12.5px;
+}
+
+.log-list .calendar-item strong {
+  font-family: var(--lat);
+  font-variant-numeric: lining-nums;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.log-list .calendar-item span {
+  font-size: 11.5px;
+}
+
+.log-list .icon-btn {
+  width: 26px;
+  height: 26px;
+}
+
+/* 캘린더 목록의 물방울·메모 표시는 선화 아이콘으로 */
+.calendar-item strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.calendar-item strong svg {
+  flex: none;
+  color: var(--ink-faint);
+}
+
+@media (max-width: 980px) {
+  .tally {
+    flex: 1 1 auto;
+  }
+
+  .tally-item {
+    flex: 1 1 auto;
+  }
+}
+
+@media (max-width: 640px) {
+  .plant-picker,
+  .log-list {
+    grid-template-columns: 1fr;
+  }
+
+  .analysis-head {
+    flex-wrap: wrap;
+  }
+}
