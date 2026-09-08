@@ -495,7 +495,6 @@ export default function Page() {
   const entryInputRef = useRef<HTMLInputElement>(null);
   const [photosLoaded, setPhotosLoaded] = useState(false);
   const [photosError, setPhotosError] = useState("");
-  const [query, setQuery] = useState("");
   const [sort, setSort] = useState<"priority" | "name">("priority");
   // 대시보드에서 '물주기'를 누를 때 기록될 날짜. 기본은 오늘이고, 어제 준 것을
   // 뒤늦게 기록할 때 캘린더 탭까지 들어가지 않아도 되게 한다.
@@ -706,19 +705,11 @@ export default function Page() {
   const balconyAge = sensorAgeHours(balconyReading, nowMs);
   const balconyStale = !isFresh(balconyReading, nowMs);
   const filtered = useMemo(() => {
-    return model
-      .filter((plant) => {
-        const keyword = query.trim().toLowerCase();
-        if (!keyword) return true;
-        return [plant.name, plant.category, plant.memo].some((value) =>
-          (value ?? "").toLowerCase().includes(keyword),
-        );
-      })
-      .sort((a, b) => {
-        if (sort === "name") return a.name.localeCompare(b.name, "ko");
-        return (a.dday ?? 999) - (b.dday ?? 999);
-      });
-  }, [model, query, sort]);
+    return [...model].sort((a, b) => {
+      if (sort === "name") return a.name.localeCompare(b.name, "ko");
+      return (a.dday ?? 999) - (b.dday ?? 999);
+    });
+  }, [model, sort]);
 
   const wateredToday = logs.filter((log) => log.watered_at.slice(0, 10) === today).length;
   const dangerPlants = model.filter((plant) => plant.dday !== null && plant.dday < 0);
@@ -1495,66 +1486,40 @@ export default function Page() {
           {error && <div className="error">{error}</div>}
 
           {(activeTab === "dashboard" || activeTab === "status") && (
-          <section className="stats">
-            <div className="stat stat-danger">
-              <div className="stat-ico"><AlertTriangle size={20} /></div>
-              <div className="stat-main">
-                <div className="stat-label">위험 · 이미 늦음</div>
-                <div className="stat-value">{overdue}<em>건</em></div>
-              </div>
-              <p className="stat-detail">{listPlantNames(dangerPlants)}</p>
+          <section className="summary">
+            <div className="sum-item danger" title={listPlantNames(dangerPlants)}>
+              <span className="sum-label">위험</span>
+              <b>{overdue}</b>
             </div>
-            <div className="stat stat-today">
-              <div className="stat-ico"><Droplets size={20} /></div>
-              <div className="stat-main">
-                <div className="stat-label">오늘 물줘야 함</div>
-                <div className="stat-value">{dueToday}<em>건</em></div>
-              </div>
-              <p className="stat-detail">{listPlantNames(todayPlants)}</p>
+            <div className="sum-item today" title={listPlantNames(todayPlants)}>
+              <span className="sum-label">오늘</span>
+              <b>{dueToday}</b>
             </div>
-            <div className="stat stat-soon">
-              <div className="stat-ico"><Clock size={20} /></div>
-              <div className="stat-main">
-                <div className="stat-label">곧 물줘야 함</div>
-                <div className="stat-value">{soon}<em>건</em></div>
-              </div>
-              <p className="stat-detail">{listPlantNames(soonPlants)}</p>
+            <div className="sum-item soon" title={listPlantNames(soonPlants)}>
+              <span className="sum-label">곧</span>
+              <b>{soon}</b>
             </div>
-            <div className="stat">
-              <div className="stat-ico"><CheckCircle size={20} /></div>
-              <div className="stat-main">
-                <div className="stat-label">오늘 완료</div>
-                <div className="stat-value">{wateredToday}<em>건</em></div>
-              </div>
-              <p className="stat-detail">총 {model.length}종 관리 중</p>
+            <div className="sum-item done" title="오늘 물 준 횟수">
+              <span className="sum-label">완료</span>
+              <b>{wateredToday}</b>
             </div>
+
+            <span className="sum-total">총 {model.length}종</span>
+
+            {activeTab === "dashboard" && (
+              <label className="sum-sort">
+                <span className="meta">정렬</span>
+                <select className="select" value={sort} onChange={(event) => setSort(event.target.value as typeof sort)}>
+                  <option value="priority">우선순위</option>
+                  <option value="name">이름순</option>
+                </select>
+              </label>
+            )}
           </section>
           )}
 
           {activeTab === "dashboard" && (
             <section className="dash">
-              <div className="dash-bar">
-                <div className="dash-bar-row">
-                  <label className="dash-field">
-                    <span className="meta">검색</span>
-                    <input
-                      className="input"
-                      value={query}
-                      onChange={(event) => setQuery(event.target.value)}
-                      placeholder="식물명, 분류, 메모"
-                    />
-                  </label>
-
-                  <label className="dash-field">
-                    <span className="meta">정렬</span>
-                    <select className="select" value={sort} onChange={(event) => setSort(event.target.value as typeof sort)}>
-                      <option value="priority">우선순위</option>
-                      <option value="name">이름순</option>
-                    </select>
-                  </label>
-                </div>
-              </div>
-
               {loading ? (
                 <div className="empty">DB에서 데이터를 불러오는 중입니다.</div>
               ) : filtered.length === 0 ? (
@@ -1601,9 +1566,6 @@ export default function Page() {
                             <strong title={plant.nextDue ?? undefined}>
                               {plant.nextDue ? shortDate(plant.nextDue) : "-"}
                             </strong>
-                          </span>
-                          <span>
-                            주기<strong>{plant.interval}일</strong>
                           </span>
                         </div>
 

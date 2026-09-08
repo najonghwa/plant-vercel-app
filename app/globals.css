@@ -3812,3 +3812,174 @@ body {
     grid-template-columns: 1fr;
   }
 }
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   한 화면에 담기 (2026-09-08)
+   상자 넷과 검색 줄이 화면 위 200px을 먹어 카드가 밀려났다.
+   요약은 괘선으로 나눈 한 줄로 올리고, 검색은 뺐다(식물이 열댓 종이라 눈으로 찾는다).
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.summary {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: rgba(255, 255, 255, .52);
+  box-shadow: var(--lift-1);
+  padding: 0 4px;
+}
+
+.sum-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 9px 16px;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.sum-item + .sum-item {
+  border-left: 1px solid var(--paper-line);
+}
+
+.sum-label {
+  font-family: var(--kr);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.sum-item b {
+  font-family: var(--lat);
+  font-variant-numeric: lining-nums;
+  font-size: 21px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.sum-item.danger .sum-label,
+.sum-item.danger b { color: var(--rose); }
+.sum-item.today .sum-label,
+.sum-item.today b { color: var(--amber); }
+.sum-item.soon .sum-label,
+.sum-item.soon b { color: var(--green); }
+.sum-item.done b { color: var(--ink); }
+
+.sum-total {
+  display: inline-flex;
+  align-items: center;
+  margin-left: auto;
+  padding: 0 14px;
+  font-family: var(--kr);
+  font-size: 12.5px;
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+
+.sum-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-left: 1px solid var(--paper-line);
+  padding: 0 4px 0 14px;
+}
+
+.sum-sort .select {
+  width: auto;
+  height: 30px;
+  padding: 0 8px;
+  font-size: 13px;
+}
+
+/* 카드를 네 칸으로. 한 화면에 열여섯 장까지 들어온다. */
+.plant-grid {
+  grid-template-columns: repeat(auto-fill, minmax(228px, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 980px) {
+  .summary {
+    flex-wrap: wrap;
+  }
+
+  .sum-total {
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .sum-item {
+    flex: 1 1 auto;
+    justify-content: center;
+    padding: 8px 10px;
+  }
+
+  .sum-item b {
+    font-size: 18px;
+  }
+
+  /* 총N종과 정렬을 한 줄에 나란히. 세 줄이면 요약만 110px을 먹는다. */
+  .sum-total,
+  .sum-sort {
+    flex: 1 1 0;
+    justify-content: center;
+    border-left: 0;
+    border-top: 1px solid var(--paper-line);
+    padding: 6px 0;
+  }
+
+  /* 16px 미만이면 iOS가 누를 때마다 화면을 확대한다. */
+  .sum-sort .select {
+    font-size: 16px;
+    height: 32px;
+  }
+
+  .plant-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 네 칸으로 좁아진 카드에서 이름과 요약이 두 줄로 꺾였다.
+   삽화와 도장을 줄여 이름 칸을 넓히고, 주기는 분석에 있으니 카드에서 뺀다. */
+.pcard-open {
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  gap: 9px;
+}
+
+.pcard-figure {
+  width: 34px;
+}
+
+.pcard-id strong {
+  font-size: 16px;
+  line-height: 1.25;
+}
+
+.pcard-id .latin {
+  font-size: 11.5px;
+}
+
+.pcard .status {
+  padding: 2px 6px;
+  font-size: 11px;
+  letter-spacing: .06em;
+}
+
+.pcard {
+  padding: 11px 12px 10px;
+  gap: 7px;
+}
+
+.pcard-line {
+  gap: 2px 12px;
+  padding: 6px 0;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.pcard-line strong {
+  margin-left: 4px;
+  font-size: 14px;
+}
