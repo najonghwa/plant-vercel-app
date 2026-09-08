@@ -80,6 +80,24 @@ function formatLocalDate(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
+/**
+ * 서버가 주는 recorded_at은 UTC의 ISO 문자열이라 앞 16자를 그대로 보이면 9시간 빠르다.
+ * 보는 사람의 시계로 바꿔 "2026-09-08 00:14" 꼴로 적는다.
+ */
+function localStamp(iso: string) {
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return iso;
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/** 헤더에 적는 오늘. "9월 8일 화요일" 꼴. */
+function koreanDate(value: string) {
+  const d = toDate(value);
+  const days = ["일", "월", "화", "수", "목", "금", "토"];
+  return `${d.getMonth() + 1}월 ${d.getDate()}일 ${days[d.getDay()]}요일`;
+}
+
 /** 카드처럼 좁은 칸에서 쓰는 "09 · 01" 꼴. 연도는 툴팁으로만 남긴다. */
 function shortDate(value: string) {
   return value.slice(5, 10).replace("-", " · ");
@@ -457,6 +475,12 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
 export default function Page() {
   // 탭을 켜둔 채 자정을 넘겨도 D-day가 그대로 남던 문제 때문에 주기적으로 갱신한다.
   const [nowMs, setNowMs] = useState(() => Date.now());
+  // 시계에 매인 글자는 브라우저에 붙은 뒤에만 그린다. 서버 시계(UTC)로 먼저 그리면
+  // 한국 시각 자정부터 아침 9시까지 어제 날짜가 잠깐 보이고 React가 불일치를 경고한다.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
   const today = useMemo(() => formatLocalDate(new Date(nowMs)), [nowMs]);
   const [plants, setPlants] = useState<Plant[]>([]);
   const [logs, setLogs] = useState<WateringLog[]>([]);
@@ -472,7 +496,6 @@ export default function Page() {
   const [photosLoaded, setPhotosLoaded] = useState(false);
   const [photosError, setPhotosError] = useState("");
   const [query, setQuery] = useState("");
-  const [location, setLocation] = useState<"전체" | "거실" | "베란다">("전체");
   const [sort, setSort] = useState<"priority" | "name">("priority");
   // 대시보드에서 '물주기'를 누를 때 기록될 날짜. 기본은 오늘이고, 어제 준 것을
   // 뒤늦게 기록할 때 캘린더 탭까지 들어가지 않아도 되게 한다.
@@ -677,9 +700,12 @@ export default function Page() {
   const latestByLocation = useMemo(() => latestBy(readings, (reading) => reading.location), [readings]);
   const latestByDevice = useMemo(() => latestBy(readings, (reading) => reading.device_id), [readings]);
   const soilPlants = useMemo(() => model.filter((plant) => plant.soil_sensor_enabled && plant.soil_sensor_device_id), [model]);
+  // 헤더에 늘 띄워두는 센서 표시. 실제로 값을 보내는 곳은 베란다뿐이다.
+  const balconyReading = latestByLocation["베란다"];
+  const balconyAge = sensorAgeHours(balconyReading, nowMs);
+  const balconyStale = !isFresh(balconyReading, nowMs);
   const filtered = useMemo(() => {
     return model
-      .filter((plant) => location === "전체" || plant.location === location)
       .filter((plant) => {
         const keyword = query.trim().toLowerCase();
         if (!keyword) return true;
@@ -691,7 +717,7 @@ export default function Page() {
         if (sort === "name") return a.name.localeCompare(b.name, "ko");
         return (a.dday ?? 999) - (b.dday ?? 999);
       });
-  }, [model, location, query, sort]);
+  }, [model, query, sort]);
 
   const wateredToday = logs.filter((log) => log.watered_at.slice(0, 10) === today).length;
   const dangerPlants = model.filter((plant) => plant.dday !== null && plant.dday < 0);
@@ -1320,10 +1346,42 @@ export default function Page() {
             <div className="eyebrow">
               <Sprout size={16} />
               Hortus Domesticus
+              {mounted && <span className="eyebrow-date">{koreanDate(today)}</span>}
             </div>
             <h1>J&rsquo;s Smart Farm</h1>
           </div>
           <div className="actions">
+            {/* 자리를 거의 안 쓰면서 어느 탭에서든 보이도록 헤더에 둔다. */}
+            <div
+              className={`sensor-chip ${balconyReading ? (balconyStale ? "stale" : "live") : "idle"}`}
+              title={
+                balconyReading
+                  ? balconyStale
+                    ? `마지막 수신이 ${SENSOR_STALE_HOURS}시간을 넘어 급수 주기 계산에서 제외했습니다. ESP32 전원과 Wi-Fi를 확인하세요.`
+                    : `ESP32 수신값 · ${localStamp(balconyReading.recorded_at)}`
+                  : "아직 수신된 센서값이 없습니다."
+              }
+            >
+              <span className="sensor-chip-loc">
+                <Home size={13} /> 베란다
+              </span>
+              {balconyReading ? (
+                <>
+                  <span className="sensor-chip-vals">
+                    <b>{balconyReading.temperature_c}&deg;C</b>
+                    <b>{balconyReading.humidity_pct}%</b>
+                    <b>{balconyReading.light_lux}lx</b>
+                  </span>
+                  <span className="sensor-chip-age">
+                    {balconyStale ? <AlertTriangle size={12} /> : <Activity size={12} />}
+                    {balconyAge === null ? "시각 불명" : formatAge(balconyAge)}
+                  </span>
+                </>
+              ) : (
+                <span className="sensor-chip-age">대기 중</span>
+              )}
+            </div>
+
             <button className="btn" onClick={loadAll} disabled={loading}>
               <RefreshCw size={16} />
               새로고침
@@ -1416,56 +1474,6 @@ export default function Page() {
 
           {activeTab === "dashboard" && (
             <section className="dash">
-              <section className="panel sensor-panel">
-                <div className="panel-title">
-                  <h2><ThermometerSun size={18} /> 실시간 센서</h2>
-                  <span className="meta">ESP32 수신값</span>
-                </div>
-                <div className="sensor-strip">
-                  {["베란다"].map((loc) => {
-                    const reading = latestByLocation[loc];
-                    const age = sensorAgeHours(reading, nowMs);
-                    const stale = !isFresh(reading, nowMs);
-                    return (
-                      <div className={`sensor-card ${reading && stale ? "stale" : ""}`} key={loc}>
-                        <div className="sensor-head">
-                          <span><Home size={15} /> {loc}</span>
-                          {reading ? (
-                            <span className={`sensor-age ${stale ? "stale" : "live"}`}>
-                              {stale ? <AlertTriangle size={12} /> : <Activity size={12} />}
-                              {age === null ? "시각 불명" : formatAge(age)}
-                              {stale && " · 수신 끊김"}
-                            </span>
-                          ) : (
-                            <span className="meta">대기 중</span>
-                          )}
-                        </div>
-                        <div className="sensor-grid three">
-                          <div className="sensor-cell">
-                            <div className="sensor-label">온도</div>
-                            <div className="sensor-value">{reading ? `${reading.temperature_c}°C` : "-"}</div>
-                          </div>
-                          <div className="sensor-cell">
-                            <div className="sensor-label">습도</div>
-                            <div className="sensor-value">{reading ? `${reading.humidity_pct}%` : "-"}</div>
-                          </div>
-                          <div className="sensor-cell">
-                            <div className="sensor-label">조도</div>
-                            <div className="sensor-value">{reading ? `${reading.light_lux}lx` : "-"}</div>
-                          </div>
-                        </div>
-                        {reading && stale && (
-                          <p className="sensor-note">
-                            마지막 수신이 {SENSOR_STALE_HOURS}시간을 넘어 급수 주기 계산에서 제외했습니다.
-                            ESP32 전원과 Wi-Fi를 확인하세요.
-                          </p>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-
               <div className={`dash-bar ${waterDate === today ? "" : "past"}`}>
                 <div className="dash-bar-row">
                   <div className="dash-field">
@@ -1506,15 +1514,6 @@ export default function Page() {
                   </label>
 
                   <label className="dash-field">
-                    <span className="meta">구역</span>
-                    <select className="select" value={location} onChange={(event) => setLocation(event.target.value as typeof location)}>
-                      <option value="전체">전체</option>
-                      <option value="거실">거실</option>
-                      <option value="베란다">베란다</option>
-                    </select>
-                  </label>
-
-                  <label className="dash-field">
                     <span className="meta">정렬</span>
                     <select className="select" value={sort} onChange={(event) => setSort(event.target.value as typeof sort)}>
                       <option value="priority">우선순위</option>
@@ -1537,13 +1536,16 @@ export default function Page() {
                 <div className="empty">표시할 식물이 없습니다. ‘새 식물’ 메뉴에서 추가해보세요.</div>
               ) : (
                 <div className="plant-grid">
-                  {filtered.map((plant) => {
+                  {filtered.map((plant, index) => {
                     const status = statusFor(plant.dday);
                     const wateredOnDate = plant.logs.some((log) => log.watered_at.slice(0, 10) === waterDate);
                     const dateLabel = waterDate === today ? "" : ` ${waterDate.slice(5).replace("-", "/")}`;
-                    const daysSince = plant.lastWatered ? dateDiff(today, plant.lastWatered) : null;
                     return (
-                      <article className={`pcard tone-${status.className}`} key={plant.id}>
+                      <article
+                        className={`pcard tone-${status.className}`}
+                        key={plant.id}
+                        style={{ "--i": index } as React.CSSProperties}
+                      >
                         <button
                           type="button"
                           className="pcard-open"
@@ -1558,10 +1560,6 @@ export default function Page() {
                             {latinNameFor(plant.name) && (
                               <em className="latin">{latinNameFor(plant.name)}</em>
                             )}
-                            <span className="pcard-where">
-                              {plant.location}
-                              {plant.category ? ` · ${plant.category}` : ""}
-                            </span>
                           </span>
                           <span className={`status ${status.className}`}>{status.label}</span>
                         </button>
@@ -1582,11 +1580,6 @@ export default function Page() {
                           <span>
                             주기<strong>{plant.interval}일</strong>
                           </span>
-                          {daysSince !== null && (
-                            <span className="pcard-since">
-                              {daysSince === 0 ? "오늘 줌" : `${daysSince}일 전에 줌`}
-                            </span>
-                          )}
                         </div>
 
                         <div className="pcard-actions">
@@ -1882,8 +1875,8 @@ export default function Page() {
                       <div className="empty compact-empty">기록을 불러오는 중입니다.</div>
                     ) : ownedEntries.length ? (
                       <div className="photo-grid">
-                        {ownedEntries.map((entry) => (
-                          <figure className="photo-card" key={entry.id}>
+                        {ownedEntries.map((entry, index) => (
+                          <figure className="photo-card" key={entry.id} style={{ "--i": index } as React.CSSProperties}>
                             {entry.thumb_url && entry.has_image ? (
                               <button
                                 className="photo-thumb"
@@ -2181,8 +2174,8 @@ export default function Page() {
                   </div>
                 ) : photos.length ? (
                   <div className="photo-grid">
-                    {photos.map((photo) => (
-                      <figure className="photo-card" key={photo.id}>
+                    {photos.map((photo, index) => (
+                      <figure className="photo-card" key={photo.id} style={{ "--i": index } as React.CSSProperties}>
                         {photo.has_image && photo.thumb_url ? (
                           <button className="photo-thumb" onClick={() => openPhoto(photo)} title="크게 보기">
                             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -2365,6 +2358,56 @@ export default function Page() {
                       ))}
                     </tbody>
                   </table>
+                </div>
+              </div>
+
+              <div className="panel">
+                <div className="panel-title">
+                  <h2><ThermometerSun size={18} /> 실시간 센서</h2>
+                  <span className="meta">ESP32 수신값</span>
+                </div>
+                <div className="sensor-strip">
+                  {["베란다"].map((loc) => {
+                    const reading = latestByLocation[loc];
+                    const age = sensorAgeHours(reading, nowMs);
+                    const stale = !isFresh(reading, nowMs);
+                    return (
+                      <div className={`sensor-card ${reading && stale ? "stale" : ""}`} key={loc}>
+                        <div className="sensor-head">
+                          <span><Home size={15} /> {loc}</span>
+                          {reading ? (
+                            <span className={`sensor-age ${stale ? "stale" : "live"}`}>
+                              {stale ? <AlertTriangle size={12} /> : <Activity size={12} />}
+                              {age === null ? "시각 불명" : formatAge(age)}
+                              {stale && " · 수신 끊김"}
+                            </span>
+                          ) : (
+                            <span className="meta">대기 중</span>
+                          )}
+                        </div>
+                        <div className="sensor-grid three">
+                          <div className="sensor-cell">
+                            <div className="sensor-label">온도</div>
+                            <div className="sensor-value">{reading ? `${reading.temperature_c}°C` : "-"}</div>
+                          </div>
+                          <div className="sensor-cell">
+                            <div className="sensor-label">습도</div>
+                            <div className="sensor-value">{reading ? `${reading.humidity_pct}%` : "-"}</div>
+                          </div>
+                          <div className="sensor-cell">
+                            <div className="sensor-label">조도</div>
+                            <div className="sensor-value">{reading ? `${reading.light_lux}lx` : "-"}</div>
+                          </div>
+                        </div>
+                        {reading && stale && (
+                          <p className="sensor-note">
+                            마지막 수신이 {SENSOR_STALE_HOURS}시간을 넘어 급수 주기 계산에서 제외했습니다.
+                            ESP32 전원과 Wi-Fi를 확인하세요.
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 

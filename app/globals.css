@@ -24,7 +24,7 @@
   --radius-sm: 2px;
   --shadow: none;
   --lat: var(--font-lat), "Cormorant Garamond", var(--font-kr), "Nanum Myeongjo", Georgia, serif;
-  --kr: var(--font-kr), "Nanum Myeongjo", "Apple Myungjo", Batang, serif;
+  --kr: "Pretendard Variable", Pretendard, var(--font-kr), "Nanum Myeongjo", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
 }
 
 * {
@@ -3173,5 +3173,464 @@ h1 {
 @media (max-width: 640px) {
   .dash-bar-row {
     grid-template-columns: 1fr;
+  }
+}
+
+
+/* ── 헤더의 센서 표시 ───────────────────────────────────────
+   생산 대시보드의 날씨 칸처럼, 자리를 거의 안 쓰면서 어느 탭에서든 보인다.
+   자세한 값과 끊김 안내는 '급수' 탭의 실시간 센서 패널에 그대로 있다. */
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.sensor-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: rgba(255, 255, 255, .38);
+  padding: 6px 12px;
+  font-family: var(--lat);
+  font-variant-numeric: lining-nums;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.sensor-chip-loc {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--kr);
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.sensor-chip-vals {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 9px;
+}
+
+.sensor-chip-vals b {
+  font-weight: 500;
+  font-size: 15px;
+  color: var(--ink);
+}
+
+/* 값 사이를 얇은 괘선으로 나눈다 */
+.sensor-chip-vals b + b {
+  border-left: 1px solid var(--paper-line);
+  padding-left: 9px;
+}
+
+.sensor-chip-age {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-left: 1px solid var(--line);
+  padding-left: 10px;
+  font-family: var(--kr);
+  font-style: normal;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.sensor-chip.live .sensor-chip-age {
+  color: var(--green);
+}
+
+.sensor-chip.stale {
+  border-color: var(--rose);
+}
+
+.sensor-chip.stale .sensor-chip-age {
+  border-left-color: var(--rose);
+  color: var(--rose);
+}
+
+@media (max-width: 640px) {
+  .sensor-chip {
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    white-space: normal;
+  }
+
+  .sensor-chip-age {
+    border-left: 0;
+    padding-left: 0;
+  }
+}
+
+
+/* ── 카드를 한 뼘 줄인다 ────────────────────────────────────
+   구역(베란다/거실)은 카드에서 뺐다. 이름과 학명이면 알아본다. */
+.pcard {
+  gap: 8px;
+  padding: 12px 14px 11px;
+}
+
+.pcard-open {
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.pcard-figure {
+  width: 38px;
+}
+
+.pcard-id strong {
+  font-size: 17px;
+}
+
+.pcard-id .latin {
+  font-size: 12px;
+}
+
+.pcard-line {
+  gap: 2px 14px;
+  padding: 6px 0;
+  font-size: 12.5px;
+}
+
+.pcard-line strong {
+  margin-left: 5px;
+  font-size: 15px;
+}
+
+/* .btn에 min-height 42px가 있어 height만 줄이면 안 먹는다. 둘 다 내리고
+   옆의 아이콘 버튼도 같은 높이로 맞춘다. */
+.water-btn {
+  min-height: 36px;
+  height: 36px;
+  font-size: 13.5px;
+}
+
+.pcard-actions .icon-btn.sm {
+  width: 36px;
+  height: 36px;
+}
+
+/* 카드가 작아진 만큼 한 줄에 더 들어가게 한다 */
+.plant-grid {
+  grid-template-columns: repeat(auto-fill, minmax(258px, 1fr));
+}
+
+@media (max-width: 640px) {
+  .plant-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   디자인 손질 (2026-09-08)
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── 헤더의 날짜 ───────────────────────────────────────── */
+.eyebrow-date {
+  margin-left: 10px;
+  border-left: 1px solid var(--line);
+  padding-left: 10px;
+  font-family: var(--kr);
+  font-variant: normal;
+  letter-spacing: 0;
+  font-size: 12.5px;
+  font-weight: 400;
+  color: var(--ink-faint);
+}
+
+/* ── 통계: 상자 넷 대신 괘선으로 나눈 한 줄 장부 ─────────
+   상자마다 테두리와 안쪽 괘선이 있으니 화면 위가 무거웠다.
+   칸 사이 1px 틈에 바탕색을 비쳐 선을 만들면 열이 몇 개로 접혀도 선이 맞는다. */
+.stats {
+  gap: 1px;
+  border: 1px solid var(--ink);
+  border-radius: 2px;
+  background: var(--line);
+}
+
+.stat {
+  border: 0;
+  border-radius: 0;
+  background: var(--panel);
+  padding: 14px 18px 12px;
+}
+
+.stat::after {
+  display: none;
+}
+
+.stat-value {
+  font-size: 38px;
+}
+
+/* ── 카드: 급한 것부터 눈에 걸리게 왼쪽 귀에 색을 준다 ──
+   장부의 색인 탭처럼. 도장 글자를 읽기 전에 훑어진다. */
+.pcard.tone-late {
+  border-left: 3px solid var(--rose);
+}
+
+.pcard.tone-soon {
+  border-left: 3px solid var(--amber);
+}
+
+/* ── 캘린더: 고른 날을 먹칠 대신 겹줄로 ──────────────────
+   검은 덩어리가 종이 위에서 너무 튄다. 오늘은 한 줄, 고른 날은 두 줄. */
+.day-cell.selected {
+  background: var(--paper-deep);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 2px var(--ink), inset 0 0 0 4px var(--paper-deep), inset 0 0 0 5px var(--ink-faint);
+}
+
+.day-cell.selected .day-num,
+.day-cell.selected strong,
+.day-cell.selected .day-more {
+  color: var(--ink);
+}
+
+.day-cell.selected .day-plant {
+  border-left-color: var(--green);
+  color: var(--ink-soft);
+}
+
+/* ── 도구 줄: 구역이 빠져 세 칸 ─────────────────────────── */
+.dash-bar-row {
+  grid-template-columns: minmax(0, auto) minmax(160px, 1fr) 140px;
+}
+
+@media (max-width: 900px) {
+  .dash-bar-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .dash-bar-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 모바일에서 통계 넷을 한 줄씩 세우면 화면 한 장이 다 찬다. 두 칸으로 접는다. */
+@media (max-width: 640px) {
+  .stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .stat {
+    padding: 12px 12px 10px;
+  }
+
+  .stat-value {
+    font-size: 32px;
+  }
+
+  .stat-detail {
+    font-size: 12px;
+  }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   글꼴 · 입체감 · 움직임 (2026-09-08)
+   한글은 프리텐다드, 라틴은 그대로 Cormorant. 종이 위에 카드가 살짝 떠 있는
+   정도의 그림자와, 눈에 띄되 거슬리지 않는 움직임.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* 따뜻한 잉크빛 그림자. 회색 그림자는 종이 위에서 차갑게 뜬다. */
+  --lift-1: 0 1px 2px rgba(60, 45, 25, .06), 0 10px 24px -12px rgba(60, 45, 25, .30);
+  --lift-2: 0 2px 4px rgba(60, 45, 25, .08), 0 18px 34px -14px rgba(60, 45, 25, .40);
+  --ease-out: cubic-bezier(.2, .7, .2, 1);
+}
+
+/* ── 프리텐다드에 맞춘 굵기·자간 ───────────────────────── */
+body {
+  letter-spacing: -.01em;
+}
+
+.panel h2,
+.card h3,
+.modal-head h2,
+.pcard-id strong,
+.plant-list-item > span:first-child > span:first-child,
+.sensor-chip-loc,
+.soil-head strong,
+.calendar-item strong {
+  font-weight: 700;
+}
+
+.navitem {
+  font-weight: 500;
+}
+
+.navitem.active {
+  font-weight: 600;
+}
+
+.daychip,
+.check-chip,
+.btn {
+  font-weight: 600;
+}
+
+.stat-detail,
+.pcard-line,
+.hint,
+.empty,
+.error,
+.tag {
+  font-weight: 400;
+}
+
+/* ── 입체감: 종이 한 장이 책상 위에 놓인 만큼 ───────────── */
+.topbar {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .45), 0 6px 18px -12px rgba(60, 45, 25, .35);
+}
+
+.panel,
+.pcard,
+.stats,
+.dash-bar,
+.photo-card,
+.plate-figure,
+.sensor-chip,
+.modal,
+.photo-viewer,
+.day-detail {
+  box-shadow: var(--lift-1);
+}
+
+.navitem.active {
+  box-shadow: 0 1px 2px rgba(60, 45, 25, .08);
+}
+
+.btn,
+.daychip,
+.icon-btn {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .5), 0 1px 1px rgba(60, 45, 25, .08);
+}
+
+.btn.primary,
+.water-btn.primary,
+.daychip.on {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18), 0 2px 6px -1px rgba(40, 60, 35, .35);
+}
+
+.status {
+  box-shadow: 0 1px 1px rgba(60, 45, 25, .10);
+}
+
+.input:focus,
+.select:focus,
+.textarea:focus {
+  box-shadow: 0 0 0 3px rgba(44, 37, 25, .10), var(--lift-1);
+}
+
+/* ── 움직임 ───────────────────────────────────────────── */
+@keyframes rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes sway {
+  0%, 100% { transform: rotate(-1.4deg); }
+  50%      { transform: rotate(1.4deg); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: .45; transform: scale(.85); }
+}
+
+/* 탭을 바꾸면 내용이 스르륵 올라온다 */
+.content-col > section {
+  animation: fade-in .28s var(--ease-out) both;
+}
+
+/* 카드는 차례로 떠오른다. backwards여야 끝난 뒤 hover가 먹는다. */
+.pcard,
+.photo-card {
+  animation: rise .45s var(--ease-out) backwards;
+  animation-delay: calc(var(--i, 0) * 35ms);
+  transition: transform .18s var(--ease-out), box-shadow .18s var(--ease-out);
+}
+
+.pcard:hover,
+.photo-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--lift-2);
+}
+
+/* 카드 위에 손을 올리면 식물이 살랑인다 */
+.pcard .plant-art,
+.plate-art .plant-art {
+  transform-origin: 50% 96%;
+}
+
+.pcard:hover .plant-art {
+  animation: sway 1.8s ease-in-out infinite;
+}
+
+/* 도판의 삽화는 바람에 흔들리듯 아주 천천히 */
+.plate-art .plant-art {
+  animation: sway 7s ease-in-out infinite;
+}
+
+.navitem,
+.plant-list-item,
+.btn,
+.daychip,
+.icon-btn,
+.status,
+.day-cell {
+  transition: transform .12s var(--ease-out), box-shadow .12s var(--ease-out), background-color .12s, border-color .12s, color .12s;
+}
+
+.btn:active:not(:disabled),
+.daychip:active,
+.icon-btn:active,
+.navitem:active {
+  transform: translateY(1px) scale(.99);
+}
+
+.navitem:hover,
+.plant-list-item:hover {
+  transform: translateX(2px);
+}
+
+.day-cell:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--lift-1);
+}
+
+/* 살아 있는 센서는 맥박처럼 */
+.sensor-chip.live .sensor-chip-age svg {
+  animation: pulse 2.4s ease-in-out infinite;
+}
+
+/* 물 주고 나면 도장이 찍히듯 */
+.water-btn.done {
+  animation: rise .3s var(--ease-out) backwards;
+}
+
+/* 움직임을 줄여달라는 설정이면 전부 끈다 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
   }
 }
