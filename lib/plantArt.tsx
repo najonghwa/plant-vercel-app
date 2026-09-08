@@ -48,9 +48,19 @@ function leafOutline(x: number, y: number, deg: number, len: number, w: number) 
   return `M${r1(x)} ${r1(y)} C${ax} ${ay} ${bx} ${by} ${tx} ${ty} C${cx} ${cy} ${ex} ${ey} ${r1(x)} ${r1(y)}Z`;
 }
 
-function ribLine(x: number, y: number, deg: number, len: number) {
+function ribLine(x: number, y: number, deg: number, len: number, w: number) {
   const { dx, dy } = vec(deg);
-  return `M${r1(x)} ${r1(y)} L${r1(x + dx * len * 0.94)} ${r1(y + dy * len * 0.94)}`;
+  // 곧은 선은 기계처럼 보인다. 폭의 일부만큼 한쪽으로 살짝 휘게 한다.
+  const bend = w * 0.18;
+  const cx = x + dx * len * 0.5 - dy * bend;
+  const cy = y + dy * len * 0.5 + dx * bend;
+  return `M${r1(x)} ${r1(y)} Q${r1(cx)} ${r1(cy)} ${r1(x + dx * len * 0.94)} ${r1(y + dy * len * 0.94)}`;
+}
+
+/** 잎 안쪽에 얹는 두 번째 물감층. 밑동 쪽이 짙고 끝으로 갈수록 옅어 보이게 작게 그린다. */
+function leafShade(x: number, y: number, deg: number, len: number, w: number) {
+  const { dx, dy } = vec(deg);
+  return leafOutline(x + dx * len * 0.06, y + dy * len * 0.06, deg, len * 0.72, w * 0.58);
 }
 
 /** 잎맥. 중앙맥에서 좌우로 뻗는 짧은 선. */
@@ -84,9 +94,12 @@ function Leaf({ x, y, deg, len, w, veins = 2, tone = "leaf" }: LeafProps) {
   return (
     <g>
       <path className={`art-fill art-${tone}`} d={leafOutline(x, y, deg, len, w)} />
-      <path d={ribLine(x, y, deg, len)} />
+      <path className="art-shade" d={leafShade(x, y, deg, len, w)} />
+      <path className="art-rib" d={ribLine(x, y, deg, len, w)} />
       {veins > 0 &&
-        veinLines(x, y, deg, len, w, veins).map((d, index) => <path d={d} key={index} />)}
+        veinLines(x, y, deg, len, w, veins).map((d, index) => (
+          <path className="art-vein" d={d} key={index} />
+        ))}
     </g>
   );
 }
@@ -105,6 +118,7 @@ function Berry({
   return (
     <g>
       <circle className={`art-fill art-${tone}`} cx={x} cy={y} r={radius} />
+      <circle className="art-gloss" cx={r1(x - radius * 0.32)} cy={r1(y - radius * 0.36)} r={r1(radius * 0.22)} />
       <path d={`M${x} ${r1(y - radius)} L${x} ${r1(y - radius - radius * 0.55)}`} />
     </g>
   );
@@ -112,6 +126,7 @@ function Berry({
 
 const Ground = () => (
   <g>
+    <ellipse className="art-shadow" cx="116" cy="309" rx="46" ry="5" />
     <path d="M86 303 C98 297 134 297 146 303" />
     <path d="M74 311 L158 311" />
   </g>
@@ -485,7 +500,7 @@ export const PlantArt = memo(function PlantArt({
       viewBox="0 0 232 320"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.15"
+      strokeWidth="1.25"
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"

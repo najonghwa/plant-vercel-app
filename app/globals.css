@@ -4301,3 +4301,206 @@ body {
 .journal .photo-grid {
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
 }
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   분석 상세 다시 짜기 (2026-09-08)
+   삽화 | 도감 설명 | 지표 레일. 오른쪽에 비던 여백을 설명으로 채운다.
+   사진 올리기는 도판에서 뺐다. 삽화는 늘 그대로 둔다.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.plate.plate-3 {
+  grid-template-columns: 200px minmax(0, 1fr) 190px;
+  gap: 22px;
+  align-items: start;
+}
+
+.plate-3 .plate-figure {
+  padding: 16px 12px 12px;
+}
+
+.plate-3 .plate-art {
+  max-width: 160px;
+}
+
+.species-page {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 4px 2px 0;
+}
+
+.species-summary {
+  margin: 0;
+  font-family: var(--kr);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.45;
+  color: var(--ink);
+}
+
+.species-para {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: var(--ink-soft);
+}
+
+.species-para.muted {
+  color: var(--ink-faint);
+}
+
+.species-page .species-facts {
+  gap: 5px;
+  border-top: 1px dashed var(--paper-line);
+  padding-top: 10px;
+}
+
+.species-page .species-facts > div {
+  grid-template-columns: 52px minmax(0, 1fr);
+}
+
+.species-page .species-facts dd {
+  line-height: 1.5;
+}
+
+/* 이 화분의 설정. 도감과 구분되게 한 칸 들여 작게 */
+.species-own {
+  font-size: 12.5px;
+}
+
+.species-own dd {
+  color: var(--ink-soft);
+}
+
+/* 지표 레일: 넉 장을 세로로 */
+.metrics-rail .analysis-cards {
+  grid-template-columns: 1fr;
+  gap: 8px;
+  margin-top: 0;
+}
+
+.metrics-rail .metric {
+  padding: 10px 12px;
+}
+
+.metrics-rail .analysis-cards .metric strong {
+  font-size: 22px;
+}
+
+/* 차트와 근거는 아래 전체 폭 */
+.chart-block {
+  margin-top: 18px;
+}
+
+/* 기록 남기기 카드 */
+.record-cta {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  margin: 12px 0 14px;
+  border: 1px dashed var(--line);
+  border-radius: 2px;
+  background: rgba(255, 255, 255, .3);
+  padding: 11px 14px;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .12s, background-color .12s;
+}
+
+.record-cta:hover {
+  border-color: var(--ink);
+  border-style: solid;
+  background: rgba(255, 255, 255, .5);
+}
+
+.record-cta > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.record-cta strong {
+  font-family: var(--kr);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.record-cta em {
+  font-style: normal;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.record-cta > svg {
+  color: var(--ink-faint);
+  flex: none;
+}
+
+/* ── 삽화 손질: 물감 두 겹, 휜 중앙맥, 가는 잎맥, 열매 광택, 바닥 그림자 ── */
+.plant-art .art-fill {
+  stroke-width: 1.1;
+}
+
+.art-shade {
+  fill: rgba(56, 84, 50, .16);
+  stroke: none;
+}
+
+.art-rib {
+  stroke-width: .95;
+}
+
+.art-vein {
+  stroke-width: .7;
+  opacity: .78;
+}
+
+.art-gloss {
+  fill: rgba(255, 255, 255, .7);
+  stroke: none;
+}
+
+.art-shadow {
+  fill: rgba(60, 45, 25, .10);
+  stroke: none;
+}
+
+/* 열매의 안쪽 음영은 잎보다 짙게 */
+.art-warm + .art-gloss,
+.art-rose + .art-gloss,
+.art-plum + .art-gloss {
+  fill: rgba(255, 255, 255, .78);
+}
+
+@media (max-width: 1180px) {
+  .plate.plate-3 {
+    grid-template-columns: 180px minmax(0, 1fr);
+  }
+
+  .metrics-rail {
+    grid-column: 1 / -1;
+  }
+
+  .metrics-rail .analysis-cards {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .plate.plate-3 {
+    grid-template-columns: 1fr;
+  }
+
+  .metrics-rail .analysis-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .record-cta em {
+    display: none;
+  }
+}
