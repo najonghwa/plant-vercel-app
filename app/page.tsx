@@ -28,6 +28,7 @@ import {
 import type { DayMemo, Plant, PlantPhoto, SensorReading, WateringLog } from "@/lib/types";
 import { latinNameFor } from "@/lib/latinNames";
 import { PlantArt } from "@/lib/plantArt";
+import { noteFor } from "@/lib/plantNotes";
 
 type PlantModel = Plant & {
   logs: WateringLog[];
@@ -1329,7 +1330,11 @@ export default function Page() {
     run(`entries:${plantId}`, () => loadEntries(plantId));
   }, [activeTab, selectedPlant?.id, entriesPlantId, today]);
 
-  const analysisGaps = selectedPlant ? wateringGaps(selectedPlant.logs) : [];
+  const allGaps = selectedPlant ? wateringGaps(selectedPlant.logs) : [];
+  // 최근 것만 그린다. 다 그리면 옆으로 넘치고 막대가 실처럼 가늘어진다.
+  const MAX_BARS = 20;
+  const analysisGaps = allGaps.slice(-MAX_BARS);
+  const hiddenGaps = allGaps.length - analysisGaps.length;
   /**
    * 도판 자리에 거는 사진. 이 식물 기록 중 가장 최근 사진을 쓰고, 없으면 삽화를 그린다.
    * 목록이 아직 다른 식물 것이면 남의 사진이 걸리므로 소유를 확인한다.
@@ -1602,7 +1607,6 @@ export default function Page() {
                         <th>D-day</th>
                         <th>식물</th>
                         <th>분류</th>
-                        <th>구역</th>
                         <th>마지막</th>
                         <th>다음</th>
                         <th>주기</th>
@@ -1632,7 +1636,6 @@ export default function Page() {
                               </button>
                             </td>
                             <td>{plant.category || "—"}</td>
-                            <td>{plant.location}</td>
                             <td title={plant.lastWatered ?? undefined}>
                               {plant.lastWatered ? shortDate(plant.lastWatered) : "—"}
                             </td>
@@ -1703,10 +1706,10 @@ export default function Page() {
                         <span className="latin h2-latin">{latinNameFor(selectedPlant.name)}</span>
                       )}
                     </h2>
-                    <span className="meta">{selectedPlant.location}</span>
                   </div>
 
                   <div className="plate">
+                    <div className="plate-left">
                     <figure className="plate-figure">
                       {plateEntry ? (
                         <button
@@ -1751,6 +1754,45 @@ export default function Page() {
                       </label>
                     </figure>
 
+                    {/* 이 식물 자체의 정보. 측정값이 아니라 설정과 일반 재배 지침이다. */}
+                    {(() => {
+                      const note = noteFor(selectedPlant.name, selectedPlant.category);
+                      const facts: Array<[string, string]> = [
+                        ["분류", selectedPlant.category || "—"],
+                        ["물", selectedPlant.water_level || "—"],
+                        ["빛", selectedPlant.sunlight || "—"],
+                      ];
+                      if (selectedPlant.difficulty) facts.push(["난이도", selectedPlant.difficulty]);
+                      return (
+                        <div className="species">
+                          <dl className="species-facts">
+                            {facts.map(([k, v]) => (
+                              <div key={k}>
+                                <dt>{k}</dt>
+                                <dd>{v}</dd>
+                              </div>
+                            ))}
+                          </dl>
+                          {note && (
+                            <div className="species-note">
+                              <p className="species-summary">{note.summary}</p>
+                              <dl className="species-facts">
+                                <div><dt>빛</dt><dd>{note.light}</dd></div>
+                                <div><dt>물</dt><dd>{note.water}</dd></div>
+                              </dl>
+                              <p className="species-tip">{note.tip}</p>
+                            </div>
+                          )}
+                          {(selectedPlant.care_note || selectedPlant.environment_recommendation) && (
+                            <p className="species-tip">
+                              {selectedPlant.care_note || selectedPlant.environment_recommendation}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })()}
+                    </div>
+
                     <div className="plate-data">
                       <div className="analysis-cards">
                         <div className="metric"><span className="meta">총 급수</span><strong>{selectedPlant.logs.length}회</strong></div>
@@ -1760,7 +1802,10 @@ export default function Page() {
                       </div>
 
                       <div className="chart-block">
-                        <div className="chart-title">급수 간격(일) 추이</div>
+                        <div className="chart-title">
+                          급수 간격(일) 추이
+                          {hiddenGaps > 0 && <span className="meta"> · 최근 {MAX_BARS}회, 앞 {hiddenGaps}회 생략</span>}
+                        </div>
                         {analysisGaps.length ? (
                           <div className="bars">
                             {analysisGaps.map((item, index) => (
@@ -2365,7 +2410,8 @@ export default function Page() {
                     return (
                       <div className={`sensor-card ${reading && stale ? "stale" : ""}`} key={loc}>
                         <div className="sensor-head">
-                          <span><Home size={15} /> {loc}</span>
+                          {/* 구역 이름은 화면에서 뺐다. 센서가 한 곳뿐이라 구분할 일이 없다. */}
+                          <span><Home size={15} /> 센서</span>
                           {reading ? (
                             <span className={`sensor-age ${stale ? "stale" : "live"}`}>
                               {stale ? <AlertTriangle size={12} /> : <Activity size={12} />}

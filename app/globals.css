@@ -4219,3 +4219,85 @@ body {
     flex-wrap: wrap;
   }
 }
+
+
+/* ── 분석 상세: 넘침 막기 · 품종 정보 ─────────────────────── */
+/* 그리드 자식은 기본 min-width가 auto라 내용만큼 벌어진다. 막대 줄이 이걸 밀어냈다. */
+.plate-data > *,
+.plate > * {
+  min-width: 0;
+}
+
+.bars {
+  min-width: 0;
+}
+
+.plate-left {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.species {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: rgba(255, 255, 255, .3);
+  padding: 12px 14px;
+}
+
+.species-facts {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+
+.species-facts > div {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+}
+
+.species-facts dt {
+  font-family: var(--lat);
+  font-variant: small-caps;
+  letter-spacing: .1em;
+  font-size: 11.5px;
+  color: var(--ink-faint);
+}
+
+.species-facts dd {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.species-note {
+  display: grid;
+  gap: 6px;
+  border-top: 1px dashed var(--paper-line);
+  padding-top: 10px;
+}
+
+.species-summary {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+  line-height: 1.45;
+}
+
+.species-tip {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+/* 기록 카드: 상세가 넓어졌으니 사진을 조금 크게 */
+.journal .photo-grid {
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+}
