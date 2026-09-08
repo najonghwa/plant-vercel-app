@@ -35,6 +35,8 @@ type PlantModel = Plant & {
   interval: number;
   baseInterval: number;
   learnedInterval: number | null;
+  /** 첫 급수 기록 날짜. 며칠째 키우는지 세는 기준. */
+  firstWatered: string | null;
   environmentAdjustment: number;
   recommendationReasons: string[];
   nextDue: string | null;
@@ -323,6 +325,7 @@ function buildPlantModel(
       interval,
       baseInterval,
       learnedInterval,
+      firstWatered: dates[0] ?? null,
       environmentAdjustment: environment.adjustment,
       recommendationReasons,
       nextDue,
@@ -528,6 +531,8 @@ export default function Page() {
   const dateInputRef = useRef<HTMLInputElement>(null);
   const [selectedDate, setSelectedDate] = useState(today);
   const [calendarMonth, setCalendarMonth] = useState(today.slice(0, 7));
+  // 날짜를 눌렀을 때만 그날의 기록 창을 띄운다. 늘 띄워두면 달력 옆이 지저분하다.
+  const [dayOpen, setDayOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [busyKeys, setBusyKeys] = useState<string[]>([]);
@@ -1439,15 +1444,15 @@ export default function Page() {
 
                         <div className="pcard-line">
                           <span>
-                            <em>Last</em>
+                            <em>물 준 날</em>
                             <strong title={plant.lastWatered ?? undefined}>
                               {plant.lastWatered ? shortDate(plant.lastWatered) : "—"}
                             </strong>
                           </span>
                           <span>
-                            <em>Next</em>
-                            <strong title={plant.nextDue ?? undefined}>
-                              {plant.nextDue ? shortDate(plant.nextDue) : "—"}
+                            <em>키운 날</em>
+                            <strong title={plant.firstWatered ? `첫 기록 ${plant.firstWatered}` : undefined}>
+                              {plant.firstWatered ? `${dateDiff(today, plant.firstWatered) + 1}일` : "—"}
                             </strong>
                           </span>
                         </div>
@@ -1487,7 +1492,7 @@ export default function Page() {
               <div className="panel table-panel">
                 <div className="panel-title">
                   <h2><BarChart3 size={18} /> 전체 식물 현황</h2>
-                  <span className="meta">분석 주기 포함</span>
+                  <span className="meta">{model.length}종</span>
                 </div>
                 <div className="table-scroll">
                   <table className="plant-table">
@@ -1496,8 +1501,8 @@ export default function Page() {
                         <th>D-day</th>
                         <th>식물</th>
                         <th>분류</th>
-                        <th>마지막</th>
-                        <th>다음</th>
+                        <th>물 준 날</th>
+                        <th>키운 날</th>
                         <th>주기</th>
                         <th>기록</th>
                         <th>메모</th>
@@ -1528,8 +1533,8 @@ export default function Page() {
                             <td title={plant.lastWatered ?? undefined}>
                               {plant.lastWatered ? shortDate(plant.lastWatered) : "—"}
                             </td>
-                            <td title={plant.nextDue ?? undefined}>
-                              {plant.nextDue ? shortDate(plant.nextDue) : "—"}
+                            <td title={plant.firstWatered ? `첫 기록 ${plant.firstWatered}` : undefined}>
+                              {plant.firstWatered ? `${dateDiff(today, plant.firstWatered) + 1}일` : "—"}
                             </td>
                             <td>{plant.interval}일</td>
                             <td>{plant.logs.length}</td>
@@ -1622,9 +1627,13 @@ export default function Page() {
                               <p className="species-summary">{note.summary}</p>
                               <p className="species-para">{note.origin}</p>
                               <p className="species-para">{note.character}</p>
+                              <p className="species-para">{note.features}</p>
+                              <p className="species-para">{note.season}</p>
                               <dl className="species-facts">
                                 <div><dt>빛</dt><dd>{note.light}</dd></div>
                                 <div><dt>물</dt><dd>{note.water}</dd></div>
+                                <div><dt>흔한 문제</dt><dd>{note.troubles}</dd></div>
+                                <div><dt>쓰임</dt><dd>{note.uses}</dd></div>
                                 <div><dt>한마디</dt><dd>{note.tip}</dd></div>
                               </dl>
                             </>
@@ -1650,7 +1659,12 @@ export default function Page() {
                       <div className="analysis-cards">
                         <div className="metric"><span className="meta">총 급수</span><strong>{selectedPlant.logs.length}회</strong></div>
                         <div className="metric"><span className="meta">최근 평균</span><strong>{selectedPlant.learnedInterval ?? "-"}일</strong></div>
-                        <div className="metric"><span className="meta">분석 주기</span><strong>{selectedPlant.interval}일</strong></div>
+                        <div className="metric">
+                          <span className="meta">키운 날</span>
+                          <strong title={selectedPlant.firstWatered ? `첫 기록 ${selectedPlant.firstWatered}` : undefined}>
+                            {selectedPlant.firstWatered ? `${dateDiff(today, selectedPlant.firstWatered) + 1}일` : "—"}
+                          </strong>
+                        </div>
                         <div className="metric"><span className="meta">다음 예정</span><strong>{selectedPlant.nextDue ?? "-"}</strong></div>
                       </div>
 
@@ -1659,8 +1673,8 @@ export default function Page() {
 
                   <div className="chart-block">
                     <div className="chart-title">
-                      급수 간격(일) &middot; 왼쪽이 최근
-                      {hiddenGaps > 0 && <span className="meta"> · 최근 {MAX_BARS}회, 앞 {hiddenGaps}회 생략</span>}
+                      급수 간격(일)
+                      {hiddenGaps > 0 && <span className="meta"> · 최근 {MAX_BARS}회</span>}
                     </div>
                     {analysisGaps.length ? (
                       <div className="bars">
@@ -1679,33 +1693,25 @@ export default function Page() {
                     )}
                   </div>
 
-                  <div className="analysis-box">
-                    <ul>
-                      {selectedPlant.recommendationReasons.map((reason, index) => (
-                        <li key={`${index}-${reason}`}>{reason}</li>
-                      ))}
-                    </ul>
-                  </div>
-
                   <div className="journal">
                     <div className="chart-title journal-title">
                       <span><StickyNote size={15} /> 이 식물의 기록</span>
                       <span className="meta">{ownedEntries.length}건</span>
                     </div>
 
-                    <button type="button" className="record-cta" onClick={() => openRecordFor(selectedPlant.id)}>
-                      <StickyNote size={16} />
-                      <span>
-                        <strong>기록 남기기</strong>
-                        <em>사진이나 메모를 기록 탭에서. 이 식물이 골라진 채로 열립니다.</em>
-                      </span>
-                      <ChevronRight size={15} />
-                    </button>
-
                     {isBusy(`entries:${selectedPlant.id}`) ? (
                       <div className="empty compact-empty">기록을 불러오는 중입니다.</div>
                     ) : ownedEntries.length ? (
                       <div className="photo-grid">
+                        <button
+                          type="button"
+                          className="record-add"
+                          onClick={() => openRecordFor(selectedPlant.id)}
+                          title="기록 탭에서 이 식물의 기록을 남깁니다"
+                        >
+                          <Plus size={18} />
+                          <span>추가</span>
+                        </button>
                         {ownedEntries.map((entry, index) => (
                           <figure className="photo-card" key={entry.id} style={{ "--i": index } as React.CSSProperties}>
                             {entry.thumb_url && entry.has_image ? (
@@ -1749,37 +1755,27 @@ export default function Page() {
                         ))}
                       </div>
                     ) : (
-                      <div className="empty compact-empty">아직 이 식물의 기록이 없습니다. 위에서 첫 기록을 남겨보세요.</div>
+                      <div className="photo-grid">
+                        <button
+                          type="button"
+                          className="record-add"
+                          onClick={() => openRecordFor(selectedPlant.id)}
+                          title="기록 탭에서 이 식물의 기록을 남깁니다"
+                        >
+                          <Plus size={18} />
+                          <span>추가</span>
+                        </button>
+                      </div>
                     )}
                   </div>
 
-                  <div className="chart-title journal-title">
-                    <span><Droplets size={15} /> 급수 기록</span>
-                    <span className="meta">{selectedPlant.logs.length}회</span>
-                  </div>
-
-                  <div className="calendar-items log-list">
-                    {selectedPlant.logs.slice().reverse().map((log) => (
-                      <div className="calendar-item" key={log.id}>
-                        <div>
-                          <strong>{log.watered_at.slice(0, 10)}</strong>
-                          {(logNote(log) || log.source === "automation") && (
-                            <span>{logNote(log) || "자동"}</span>
-                          )}
-                        </div>
-                        <button className="icon-btn danger" onClick={() => deleteWateringLog(log)} title="기록 취소">
-                          <Trash2 size={15} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
               </div>
             </section>
           )}
 
           {activeTab === "calendar" && (
             <section className="tab-page">
-              <div className="calendar-layout">
+              <div className="calendar-only">
                 <div className="panel calendar-panel">
                   <div className="panel-title">
                     <h2><CalendarDays size={18} /> 급수 캘린더</h2>
@@ -1808,7 +1804,10 @@ export default function Page() {
                         <button
                           className={`day-cell ${day.inMonth ? "" : "muted"} ${selectedDate === day.date ? "selected" : ""} ${day.date === today ? "today" : ""}`}
                           key={day.date}
-                          onClick={() => setSelectedDate(day.date)}
+                          onClick={() => {
+                            setSelectedDate(day.date);
+                            setDayOpen(true);
+                          }}
                           // 칸에는 세 종만 적히므로, 마우스를 올리면 그날 준 것을 전부 보여준다.
                           title={
                             dayNames.length
@@ -1822,14 +1821,12 @@ export default function Page() {
                           {memoCount > 0 && <span className="diary-mark" title={`메모 ${memoCount}건`}>&dagger;</span>}
                           {dayNames.length > 0 && (
                             <span className="day-plants">
-                              {dayNames.slice(0, 3).map((name) => (
+                              {dayNames.map((name) => (
                                 <span className="day-plant" key={name} title={name}>
                                   {name}
                                 </span>
                               ))}
-                              {dayNames.length > 3 && (
-                                <span className="day-more">&plus;{dayNames.length - 3}</span>
-                              )}
+
                             </span>
                           )}
                         </button>
@@ -1838,10 +1835,20 @@ export default function Page() {
                   </div>
                 </div>
 
-                <aside className="panel day-detail">
-                  <div className="panel-title">
-                    <h2>{selectedDate}</h2>
-                    <span className="meta">급수 {selectedDateLogs.length} · 메모 {selectedDateMemos.length}</span>
+              </div>
+            </section>
+          )}
+
+          {activeTab === "calendar" && dayOpen && (
+            <div className="modal-backdrop" onClick={() => setDayOpen(false)}>
+              <div className="modal day-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+                <div className="modal-head">
+                  <h2>{selectedDate}</h2>
+                  <button className="icon-btn" onClick={() => setDayOpen(false)} aria-label="닫기"><X size={16} /></button>
+                </div>
+                <div className="modal-body day-detail">
+                  <div className="meta day-modal-count">
+                    급수 {selectedDateLogs.length} · 메모 {selectedDateMemos.length}
                   </div>
 
                   <div className="calendar-items">
@@ -1898,9 +1905,9 @@ export default function Page() {
                       <Plus size={16} /> 기록 저장
                     </button>
                   </form>
-                </aside>
+                </div>
               </div>
-            </section>
+            </div>
           )}
 
           {activeTab === "photos" && (

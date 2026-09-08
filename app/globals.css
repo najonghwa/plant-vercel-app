@@ -4504,3 +4504,91 @@ body {
     display: none;
   }
 }
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   군더더기 걷어내기 (2026-09-08)
+   달력은 넓게·팝업으로, 기록은 '추가' 칸으로, 목록 버튼은 숨 쉴 자리를.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* '목록' 버튼이 아래 괘선에 붙어 있었다 */
+.analysis-head {
+  gap: 14px;
+  padding-bottom: 12px;
+}
+
+.analysis-head .back-btn {
+  margin-right: 2px;
+}
+
+/* 달력은 옆 카드를 걷어내고 폭을 다 쓴다 */
+.calendar-only {
+  display: block;
+}
+
+.calendar-only .month-grid {
+  min-height: 0;
+}
+
+/* 칸이 넓어졌으니 그날 준 식물을 다 적는다 */
+.calendar-only .day-cell {
+  min-height: 118px;
+}
+
+.calendar-only .day-plant {
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+/* 그날의 기록은 팝업으로 */
+.day-modal {
+  width: min(560px, 92vw);
+}
+
+.day-modal-count {
+  margin-bottom: 10px;
+}
+
+.day-modal .day-add-form {
+  margin-top: 14px;
+}
+
+/* 기록 격자 맨 앞의 '추가' 칸 */
+.record-add {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 128px;
+  border: 1px dashed var(--line);
+  border-radius: 2px;
+  background: rgba(255, 255, 255, .28);
+  color: var(--ink-faint);
+  font: inherit;
+  cursor: pointer;
+  transition: border-color .12s, color .12s, background-color .12s;
+}
+
+.record-add:hover {
+  border-color: var(--ink);
+  border-style: solid;
+  background: rgba(255, 255, 255, .5);
+  color: var(--ink);
+}
+
+.record-add span {
+  font-family: var(--kr);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+@media (max-width: 640px) {
+  .calendar-only .day-cell {
+    min-height: 86px;
+  }
+
+  .calendar-only .day-plant {
+    font-size: 9.5px;
+  }
+}
