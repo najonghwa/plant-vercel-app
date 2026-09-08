@@ -4592,3 +4592,78 @@ body {
     font-size: 9.5px;
   }
 }
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   겹쳐 뜨는 창 고치기 (2026-09-08)
+   --panel이 반투명 흰색이라 모달 바탕으로 쓰면 뒤 화면이 그대로 비쳤다.
+   달력 위에 뜨는 그날의 기록 창이 글자가 겹쳐 읽히지 않았다.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* 모달은 종이 한 장. 뒤가 비치면 안 된다. */
+.modal,
+.photo-viewer {
+  background: var(--paper);
+  box-shadow: 0 26px 70px -20px rgba(40, 30, 15, .55);
+}
+
+/* 뒤 화면은 더 눌러 둔다 */
+.modal-backdrop {
+  background: rgba(30, 24, 14, .62);
+}
+
+.modal-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  border-bottom: 1px solid var(--ink);
+  background: var(--paper);
+}
+
+/* 모달 안의 낱장들도 종이 위에서 또렷하게 */
+.modal .calendar-item,
+.modal .check-list,
+.modal .textarea,
+.modal .input,
+.modal .select {
+  background: rgba(255, 255, 255, .62);
+}
+
+/* 순백 상자가 종이 위에서 튀었다 */
+.check-list {
+  border-color: var(--line);
+  background: rgba(255, 255, 255, .5);
+}
+
+.check-chip {
+  background: rgba(255, 255, 255, .55);
+}
+
+.check-chip:hover {
+  background: rgba(255, 255, 255, .85);
+}
+
+/* 그날의 기록 창 */
+.day-modal {
+  width: min(560px, 92vw);
+}
+
+.day-modal .day-detail {
+  display: grid;
+  gap: 10px;
+}
+
+.day-modal-count {
+  margin: 0 0 4px;
+}
+
+.day-modal .calendar-items {
+  display: grid;
+  gap: 8px;
+}
+
+.day-modal .day-add-form {
+  margin-top: 4px;
+  border-top: 1px dashed var(--line);
+  padding-top: 14px;
+}
