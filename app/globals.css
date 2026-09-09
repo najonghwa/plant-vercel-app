@@ -3276,12 +3276,12 @@ h1 {
 }
 
 .pcard-open {
-  grid-template-columns: 38px minmax(0, 1fr) auto;
+  grid-template-columns: 46px minmax(0, 1fr) auto;
   gap: 10px;
 }
 
 .pcard-figure {
-  width: 38px;
+  width: 46px;
 }
 
 .pcard-id strong {
@@ -3545,9 +3545,16 @@ body {
   to   { opacity: 1; transform: translateY(0); }
 }
 
+/* 1.4도로는 38px 그림에서 1픽셀도 안 움직여 보이지 않았다. */
 @keyframes sway {
-  0%, 100% { transform: rotate(-1.4deg); }
-  50%      { transform: rotate(1.4deg); }
+  0%, 100% { transform: rotate(-4.5deg) translateY(0); }
+  50%      { transform: rotate(4.5deg) translateY(-3px); }
+}
+
+/* 작은 카드는 각도를 더 줘야 눈에 띈다 */
+@keyframes sway-sm {
+  0%, 100% { transform: rotate(-8deg); }
+  50%      { transform: rotate(8deg); }
 }
 
 @keyframes pulse {
@@ -3580,13 +3587,29 @@ body {
   transform-origin: 50% 82%;
 }
 
-.pcard:hover .plant-art .tn-plant {
-  animation: sway 1.8s ease-in-out infinite;
+.pcard .plant-art .tn-plant {
+  animation: sway-sm 4.2s ease-in-out infinite;
 }
 
-/* 도판의 삽화는 바람에 흔들리듯 아주 천천히 */
+/* 열다섯 개가 한 박자로 움직이면 화면이 출렁인다. 카드마다 시차를 준다. */
+.pcard:nth-child(5n + 2) .plant-art .tn-plant { animation-delay: -.8s; }
+.pcard:nth-child(5n + 3) .plant-art .tn-plant { animation-delay: -1.7s; }
+.pcard:nth-child(5n + 4) .plant-art .tn-plant { animation-delay: -2.5s; }
+.pcard:nth-child(5n + 5) .plant-art .tn-plant { animation-delay: -3.3s; }
+
+.pcard:hover .plant-art .tn-plant {
+  animation-duration: 1.3s;
+}
+
+/* 도판의 그림은 바람을 맞은 듯 계속 흔들린다. 7초는 너무 느려 멈춘 줄 알았다. */
 .plate-art .plant-art .tn-plant {
-  animation: sway 7s ease-in-out infinite;
+  animation: sway 3.6s ease-in-out infinite;
+}
+
+/* 목록에서 한 종에 손을 올려도 흔들린다 */
+.pick-item:hover .plant-art .tn-plant {
+  transform-origin: 50% 82%;
+  animation: sway-sm 1.5s ease-in-out infinite;
 }
 
 .navitem,
@@ -3944,12 +3967,12 @@ body {
 /* 네 칸으로 좁아진 카드에서 이름과 요약이 두 줄로 꺾였다.
    삽화와 도장을 줄여 이름 칸을 넓히고, 주기는 분석에 있으니 카드에서 뺀다. */
 .pcard-open {
-  grid-template-columns: 34px minmax(0, 1fr) auto;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
   gap: 9px;
 }
 
 .pcard-figure {
-  width: 34px;
+  width: 40px;
 }
 
 .pcard-id strong {
