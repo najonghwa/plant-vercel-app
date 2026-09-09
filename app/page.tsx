@@ -44,9 +44,14 @@ type PlantModel = Plant & {
   dday: number | null;
 };
 
+/**
+ * 새 식물이 들어갈 구역. 화면에서는 고르지 않는다.
+ * DB가 두 값만 받고 펌프·센서 배정에 쓰이므로, 실제로 장비가 있는 쪽으로 넣는다.
+ */
+const DEFAULT_LOCATION = "베란다";
+
 const blankPlant = {
   name: "",
-  location: "거실",
 };
 
 /** 이 시간이 지난 센서값은 "현재 환경"으로 신뢰하지 않는다. */
@@ -774,7 +779,7 @@ export default function Page() {
     await run("add-plant", async () => {
       const data = await fetchJson<{ plant: Plant }>("/api/plants", {
         method: "POST",
-        body: JSON.stringify({ name: newPlant.name, location: newPlant.location }),
+        body: JSON.stringify({ name: newPlant.name, location: DEFAULT_LOCATION }),
       });
       setPlants((prev) => [...prev, data.plant]);
       setNewPlant(blankPlant);
@@ -1647,9 +1652,9 @@ export default function Page() {
                         {latinNameFor(selectedPlant.name) && (
                           <span className="latin plate-latin">{latinNameFor(selectedPlant.name)}</span>
                         )}
-                        <span className="plate-foot">
-                          삽화{selectedPlant.category ? ` · ${selectedPlant.category}` : ""}
-                        </span>
+                        {selectedPlant.category && (
+                          <span className="plate-foot">{selectedPlant.category}</span>
+                        )}
                       </figcaption>
                     </figure>
 
@@ -2446,14 +2451,10 @@ export default function Page() {
               <div className="panel add-panel">
                 <div className="panel-title">
                   <h2><Plus size={18} /> 새 식물 추가</h2>
-                  <span className="meta">이름과 위치만 입력하세요</span>
+                  <span className="meta">이름만 입력하세요</span>
                 </div>
                 <form className="form-grid add-form simple" onSubmit={addPlant}>
                   <input className="input" required placeholder="식물 이름" value={newPlant.name} onChange={(event) => setNewPlant({ ...newPlant, name: event.target.value })} />
-                  <select className="select" value={newPlant.location} onChange={(event) => setNewPlant({ ...newPlant, location: event.target.value })}>
-                    <option value="거실">거실</option>
-                    <option value="베란다">베란다</option>
-                  </select>
                   <button className="btn primary" type="submit">
                     <CheckCircle size={16} /> 식물 저장
                   </button>
