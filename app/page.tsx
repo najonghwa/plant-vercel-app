@@ -29,7 +29,6 @@ import type { DayMemo, Plant, PlantPhoto, SensorReading, WateringLog } from "@/l
 import { latinNameFor } from "@/lib/latinNames";
 import { PlantArt } from "@/lib/plantArt";
 import { noteFor } from "@/lib/plantNotes";
-import { imageFor } from "@/lib/plantImages";
 
 type PlantModel = Plant & {
   logs: WateringLog[];
@@ -345,6 +344,20 @@ function buildPlantModel(
  * 남은 날을 부호 붙인 숫자로 준다. -1은 하루 늦음, +0은 오늘, +3은 사흘 남음.
  * 낱말("곧 물주기")보다 짧고, 카드마다 폭이 흔들리지 않는다.
  */
+type TableKey = "dday" | "name" | "category" | "last" | "next" | "interval" | "logs" | "note";
+
+/** 표의 칸 하나. 정렬에 쓸 값을 함께 들고 있어 머리글을 누르면 그대로 쓴다. */
+const TABLE_COLUMNS: Array<{ key: TableKey; label: string; numeric?: boolean }> = [
+  { key: "dday", label: "D-day", numeric: true },
+  { key: "name", label: "식물" },
+  { key: "category", label: "분류" },
+  { key: "last", label: "마지막" },
+  { key: "next", label: "다음" },
+  { key: "interval", label: "주기", numeric: true },
+  { key: "logs", label: "기록", numeric: true },
+  { key: "note", label: "메모" },
+];
+
 function statusFor(dday: number | null) {
   if (dday === null) return { label: "—", className: "ok", full: "급수 기록 없음" };
   if (dday < 0) return { label: String(dday), className: "late", full: `${Math.abs(dday)}일 지났습니다` };
@@ -529,6 +542,8 @@ export default function Page() {
     "dashboard" | "status" | "analysis" | "calendar" | "photos" | "water" | "add"
   >("dashboard");
   const [selectedPlantId, setSelectedPlantId] = useState("");
+  /** 전체 현황 표의 정렬. 같은 칸을 다시 누르면 방향이 뒤집힌다. */
+  const [tableSort, setTableSort] = useState<{ key: TableKey; dir: 1 | -1 }>({ key: "dday", dir: 1 });
   const [settingsPlantId, setSettingsPlantId] = useState<string | null>(null);
   const [newPlant, setNewPlant] = useState(blankPlant);
   // 캘린더 팝업의 기록 폼. 기록 탭 폼과 상태를 나눠 서로의 입력이 지워지지 않게 한다.
@@ -769,6 +784,50 @@ export default function Page() {
       return acc;
     }, {});
   }, [memos]);
+
+  /**
+   * 전체 현황 표의 줄 순서. 빈 값(기록 없음)은 방향과 상관없이 늘 아래로 보낸다.
+   * 위로 올라오면 정작 봐야 할 식물이 밀린다.
+   */
+  const sortedModel = useMemo(() => {
+    const value = (plant: PlantModel): string | number | null => {
+      switch (tableSort.key) {
+        case "dday":
+          return plant.dday;
+        case "name":
+          return plant.name;
+        case "category":
+          return plant.category || null;
+        case "last":
+          return plant.lastWatered;
+        case "next":
+          return plant.nextDue;
+        case "interval":
+          return plant.interval;
+        case "logs":
+          return plant.logs.length;
+        case "note":
+          return plant.care_note || plant.memo || null;
+      }
+    };
+
+    return [...model].sort((a, b) => {
+      const av = value(a);
+      const bv = value(b);
+      if (av === null && bv === null) return a.name.localeCompare(b.name, "ko");
+      if (av === null) return 1;
+      if (bv === null) return -1;
+      const cmp =
+        typeof av === "number" && typeof bv === "number"
+          ? av - bv
+          : String(av).localeCompare(String(bv), "ko");
+      return cmp * tableSort.dir || a.name.localeCompare(b.name, "ko");
+    });
+  }, [model, tableSort]);
+
+  function sortTableBy(key: TableKey) {
+    setTableSort((prev) => (prev.key === key ? { key, dir: prev.dir === 1 ? -1 : 1 } : { key, dir: 1 }));
+  }
 
   const monthDays = useMemo(() => getMonthDays(calendarMonth), [calendarMonth]);
   const selectedDateLogs = logsByDate[selectedDate] ?? [];
@@ -1413,7 +1472,7 @@ export default function Page() {
             <Activity size={17} /> 식물 분석
           </button>
           <button className={`navitem ${activeTab === "calendar" ? "active" : ""}`} onClick={() => setActiveTab("calendar")}>
-            <CalendarDays size={17} /> 급수 캘린더
+            <CalendarDays size={17} /> Calendar
           </button>
           <button className={`navitem ${activeTab === "photos" ? "active" : ""}`} onClick={() => setActiveTab("photos")}>
             <StickyNote size={17} /> 기록
@@ -1540,18 +1599,21 @@ export default function Page() {
                   <table className="plant-table">
                     <thead>
                       <tr>
-                        <th>D-day</th>
-                        <th>식물</th>
-                        <th>분류</th>
-                        <th>물 준 날</th>
-                        <th>키운 날</th>
-                        <th>주기</th>
-                        <th>기록</th>
-                        <th>메모</th>
+                        {TABLE_COLUMNS.map((col) => {
+                          const on = tableSort.key === col.key;
+                          return (
+                            <th key={col.key} className={on ? "sorted" : ""} aria-sort={on ? (tableSort.dir === 1 ? "ascending" : "descending") : "none"}>
+                              <button type="button" className="th-sort" onClick={() => sortTableBy(col.key)}>
+                                {col.label}
+                                <span className="th-arrow">{on ? (tableSort.dir === 1 ? "\u25B2" : "\u25BC") : ""}</span>
+                              </button>
+                            </th>
+                          );
+                        })}
                       </tr>
                     </thead>
                     <tbody>
-                      {model.map((plant) => {
+                      {sortedModel.map((plant) => {
                         const status = statusFor(plant.dday);
                         return (
                           <tr key={plant.id}>
@@ -1645,44 +1707,19 @@ export default function Page() {
                   </div>
 
                   <div className="plate plate-3">
-                    {(() => {
-                      // 옛 식물 도감의 실제 도판. 없는 종만 선화로 대신한다.
-                      const img = imageFor(selectedPlant.name);
-                      return (
-                        <figure className="plate-figure">
-                          {img ? (
-                            <div className={`plate-img ${img.kind}`}>
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src={img.src} alt={`${selectedPlant.name} — ${img.depicts}`} />
-                            </div>
-                          ) : (
-                            <div className="plate-art">
-                              <PlantArt name={selectedPlant.name} category={selectedPlant.category} />
-                            </div>
-                          )}
-                          <figcaption>
-                            {latinNameFor(selectedPlant.name) && (
-                              <span className="latin plate-latin">{latinNameFor(selectedPlant.name)}</span>
-                            )}
-                            {selectedPlant.category && (
-                              <span className="plate-foot">{selectedPlant.category}</span>
-                            )}
-                            {img && (
-                              <a
-                                className="plate-credit"
-                                href={img.url}
-                                target="_blank"
-                                rel="noreferrer"
-                                title={`그림: ${img.depicts} · 원본 보기`}
-                              >
-                                {img.credit}
-                                {img.year ? ` · ${img.year}` : ""}
-                              </a>
-                            )}
-                          </figcaption>
-                        </figure>
-                      );
-                    })()}
+                    <figure className="plate-figure">
+                      <div className="plate-art">
+                        <PlantArt name={selectedPlant.name} category={selectedPlant.category} />
+                      </div>
+                      <figcaption>
+                        {latinNameFor(selectedPlant.name) && (
+                          <span className="latin plate-latin">{latinNameFor(selectedPlant.name)}</span>
+                        )}
+                        {selectedPlant.category && (
+                          <span className="plate-foot">{selectedPlant.category}</span>
+                        )}
+                      </figcaption>
+                    </figure>
 
                     {/* 도감 페이지. 실측이 아니라 일반 지식과 이 화분의 설정이다. */}
                     {(() => {
@@ -1845,7 +1882,7 @@ export default function Page() {
               <div className="calendar-only">
                 <div className="panel calendar-panel">
                   <div className="panel-title">
-                    <h2><CalendarDays size={18} /> 급수 캘린더</h2>
+                    <h2><CalendarDays size={18} /> Calendar</h2>
                     <div className="month-controls">
                       <button className="icon-btn" onClick={() => setCalendarMonth((prev) => moveMonth(prev, -1))}>
                         <ChevronLeft size={16} />
@@ -1951,7 +1988,7 @@ export default function Page() {
                   {/* 2. 그날의 기록. 사진이든 메모든 기록 탭과 같은 곳에 쌓인다. */}
                   <section className="day-sec">
                     <div className="day-sec-head">
-                      <span className="day-sec-title"><StickyNote size={14} /> 그날의 기록</span>
+                      <span className="day-sec-title"><StickyNote size={14} /> 기록</span>
                       <span className="meta">{selectedDatePhotos.length + selectedDateMemos.length}건</span>
                     </div>
 
