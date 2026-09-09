@@ -4869,3 +4869,40 @@ body {
     grid-template-columns: 1fr;
   }
 }
+
+
+/* ── 분석 도판: 실제 도감 그림 ───────────────────────────── */
+.plate-img {
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--ink);
+  border-radius: 2px;
+  background: rgba(255, 255, 255, .5);
+}
+
+.plate-img img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* 사진 두 장은 옛 도판 사이에서 튀지 않게 살짝 바랜 톤으로 */
+.plate-img.photo img {
+  filter: sepia(.28) saturate(.82) contrast(.95);
+}
+
+.plate-credit {
+  font-family: var(--lat);
+  font-variant: small-caps;
+  font-variant-numeric: lining-nums;
+  letter-spacing: .08em;
+  font-size: 11px;
+  color: var(--ink-faint);
+  text-decoration: none;
+  border-bottom: 1px dotted var(--paper-line);
+}
+
+.plate-credit:hover {
+  color: var(--ink);
+  border-bottom-color: var(--ink);
+}

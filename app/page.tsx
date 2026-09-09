@@ -29,6 +29,7 @@ import type { DayMemo, Plant, PlantPhoto, SensorReading, WateringLog } from "@/l
 import { latinNameFor } from "@/lib/latinNames";
 import { PlantArt } from "@/lib/plantArt";
 import { noteFor } from "@/lib/plantNotes";
+import { imageFor } from "@/lib/plantImages";
 
 type PlantModel = Plant & {
   logs: WateringLog[];
@@ -1644,19 +1645,44 @@ export default function Page() {
                   </div>
 
                   <div className="plate plate-3">
-                    <figure className="plate-figure">
-                      <div className="plate-art">
-                        <PlantArt name={selectedPlant.name} category={selectedPlant.category} />
-                      </div>
-                      <figcaption>
-                        {latinNameFor(selectedPlant.name) && (
-                          <span className="latin plate-latin">{latinNameFor(selectedPlant.name)}</span>
-                        )}
-                        {selectedPlant.category && (
-                          <span className="plate-foot">{selectedPlant.category}</span>
-                        )}
-                      </figcaption>
-                    </figure>
+                    {(() => {
+                      // 옛 식물 도감의 실제 도판. 없는 종만 선화로 대신한다.
+                      const img = imageFor(selectedPlant.name);
+                      return (
+                        <figure className="plate-figure">
+                          {img ? (
+                            <div className={`plate-img ${img.kind}`}>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={img.src} alt={`${selectedPlant.name} — ${img.depicts}`} />
+                            </div>
+                          ) : (
+                            <div className="plate-art">
+                              <PlantArt name={selectedPlant.name} category={selectedPlant.category} />
+                            </div>
+                          )}
+                          <figcaption>
+                            {latinNameFor(selectedPlant.name) && (
+                              <span className="latin plate-latin">{latinNameFor(selectedPlant.name)}</span>
+                            )}
+                            {selectedPlant.category && (
+                              <span className="plate-foot">{selectedPlant.category}</span>
+                            )}
+                            {img && (
+                              <a
+                                className="plate-credit"
+                                href={img.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                title={`그림: ${img.depicts} · 원본 보기`}
+                              >
+                                {img.credit}
+                                {img.year ? ` · ${img.year}` : ""}
+                              </a>
+                            )}
+                          </figcaption>
+                        </figure>
+                      );
+                    })()}
 
                     {/* 도감 페이지. 실측이 아니라 일반 지식과 이 화분의 설정이다. */}
                     {(() => {
