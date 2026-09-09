@@ -4906,3 +4906,90 @@ body {
   color: var(--ink);
   border-bottom-color: var(--ink);
 }
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   만화풍 식물 그림 (2026-09-09)
+   굵은 잉크 외곽선 + 납작한 색. 종마다 특징 하나를 크게 그린다.
+   색을 여기 두지 않으면 fill:var(...)이 무효가 되어 그림이 통째로 검게 나온다.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --toon-leaf: #7ea365;
+  --toon-leaf-deep: #55803f;
+  --toon-leaf-pale: #a8c58c;
+  --toon-silver: #a9bda6;
+  --toon-cream: #e4d9a4;
+  --toon-orange: #dd9436;
+  --toon-red: #c65a49;
+  --toon-blue: #6d7fa8;
+  --toon-olive: #4d4a2f;
+  --toon-white: #f6f1e2;
+  --toon-pot: #c48a68;
+  --toon-pot-deep: #ab7053;
+}
+
+.plant-art {
+  display: block;
+  width: 100%;
+  height: auto;
+  color: var(--ink);
+}
+
+.tn-pot { fill: var(--toon-pot); }
+.tn-pot-rim { fill: var(--toon-pot-deep); }
+
+.tn-stem { stroke-width: 6; }
+.tn-trunk { stroke-width: 8; }
+.tn-needle { stroke-width: 4.5; }
+
+.tn-vein {
+  stroke-width: 2.6;
+  opacity: .45;
+}
+
+/* 알로카시아의 흰 잎맥은 이 종을 알아보는 표시라 잉크색이 아니라 흰색으로 굵게 */
+.tn-vein-bold {
+  stroke: var(--toon-white);
+  stroke-width: 5;
+}
+
+.tn-spine,
+.tn-calyx { stroke-width: 3.5; }
+
+/* 작은 자리에서는 잎맥이 뭉개져 지저분해진다 */
+.pcard-figure .tn-vein,
+.pick-art .tn-vein {
+  display: none;
+}
+
+/* ── 전체 현황: 칸 제목을 눌러 정렬 ───────────────────────── */
+.th-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  border: 0;
+  background: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.th-sort:hover {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.th-arrow {
+  font-size: 9px;
+  line-height: 1;
+  color: var(--ink-faint);
+}
+
+.plant-table th.sorted { color: var(--ink); }
+.plant-table th.sorted .th-arrow { color: var(--green); }
