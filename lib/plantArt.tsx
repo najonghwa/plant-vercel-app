@@ -48,6 +48,7 @@ const RED = "var(--toon-red)";
 const BLUE = "var(--toon-blue)";
 const WHITE = "var(--toon-white)";
 const OLIVE = "var(--toon-olive)";
+const PINK = "var(--toon-pink)";
 
 /** 흙 높이. 줄기는 이 아래에서 시작해 화분 뒤로 숨는다. */
 const SOIL = 196;
@@ -95,6 +96,11 @@ function Leaf({
         fill={fill}
         d={`M${x} ${y} C${p(0.3, 1)} ${p(0.72, 0.85)} ${tip} C${p(0.72, -0.85)} ${p(0.3, -1)} ${x} ${y}Z`}
       />
+      {/* 한쪽 반만 살짝 밝게. 납작한 색만 있으면 종이 오린 것처럼 보인다. */}
+      <path
+        className="tn-hi"
+        d={`M${x} ${y} C${p(0.3, 1)} ${p(0.72, 0.85)} ${tip} L${p(0.66, 0)} Z`}
+      />
       {vein && <path className="tn-vein" d={`M${x} ${y} L${tip}`} />}
     </g>
   );
@@ -107,6 +113,30 @@ const Pair = (p: { y: number; len: number; w: number; spread: number; fill?: str
     <Leaf x={100} y={p.y} deg={-p.spread} len={p.len} w={p.w} fill={p.fill} />
   </>
 );
+
+/**
+ * 흙에서 뻗어 나가는 잔가지 하나. 곡선 위의 점과 그 자리의 기울기를 함께 준다.
+ * 잎을 가지에 수직으로 붙이려면 기울기가 있어야 한다.
+ */
+function sprig(tipX: number, tipY: number, n: number, bow = 12) {
+  const p0: [number, number] = [100, 192];
+  const p2: [number, number] = [tipX, tipY];
+  const p1: [number, number] = [(p0[0] + p2[0]) / 2 + (p2[0] - p0[0]) * 0.18, (p0[1] + p2[1]) / 2 + bow];
+  const pts: Array<{ x: number; y: number; ang: number }> = [];
+  for (let i = 1; i <= n; i += 1) {
+    const t = i / (n + 0.7);
+    const u = 1 - t;
+    pts.push({
+      x: u * u * p0[0] + 2 * u * t * p1[0] + t * t * p2[0],
+      y: u * u * p0[1] + 2 * u * t * p1[1] + t * t * p2[1],
+      ang:
+        (Math.atan2(2 * u * (p1[1] - p0[1]) + 2 * t * (p2[1] - p1[1]), 2 * u * (p1[0] - p0[0]) + 2 * t * (p2[0] - p1[0])) *
+          180) /
+        Math.PI,
+    });
+  }
+  return { pts, d: `M${p0[0]} ${p0[1]} Q${p1[0].toFixed(1)} ${p1[1].toFixed(1)} ${p2[0]} ${p2[1]}` };
+}
 
 /** 바늘잎 한 쌍. 잉크 밑선 위에 초록을 덧그어 윤곽선 안에 색이 보이게 한다. */
 const Needles = ({ x, y, len = 13, rise = 10 }: { x: number; y: number; len?: number; rise?: number }) => (
@@ -174,36 +204,62 @@ const FORMS: Record<PlantForm, () => JSX.Element> = {
     </>
   ),
 
-  // 레몬타임: 아주 작은 잎이 낮게 뭉쳐 퍼진다
-  thyme: () => (
-    <>
-      {[-1, 1].map((dir) =>
-        [0, 1].map((row) => {
-          const reach = 40 - row * 12;
-          const lift = 34 + row * 20;
+  // 레몬타임: 가는 잔가지마다 아주 작은 잎이 마주 붙는다. 낮게 퍼지는 덤불.
+  thyme: () => {
+    const twigs: Array<{ tip: [number, number]; n: number; flower?: boolean }> = [
+      { tip: [50, 146], n: 6 },
+      { tip: [70, 116], n: 7, flower: true },
+      { tip: [100, 100], n: 8, flower: true },
+      { tip: [132, 114], n: 7 },
+      { tip: [152, 148], n: 6, flower: true },
+    ];
+    return (
+      <>
+        {twigs.map((tw, si) => {
+          const { pts, d } = sprig(tw.tip[0], tw.tip[1], tw.n);
           return (
-            <g key={`${dir}-${row}`}>
-              <path
-                className="tn-stem"
-                d={`M100 ${SOIL} C${100 + reach * 0.5 * dir} ${186 - lift * 0.4} ${100 + reach * dir} ${180 - lift * 0.8} ${100 + reach * dir} ${180 - lift}`}
-              />
-              {Array.from({ length: 4 }, (_, i) => {
-                const t = (i + 1) / 4.3;
-                const x = 100 + reach * dir * t;
-                const y = 184 - lift * t - 6;
+            <g key={si}>
+              <path className="tn-twig" d={d} />
+              {pts.map((p, i) => {
+                const r = ((p.ang + 90) * Math.PI) / 180;
+                const ox = Math.cos(r) * 6.5;
+                const oy = Math.sin(r) * 6.5;
+                const tone = (si + i) % 3 === 0 ? GL : G;
                 return (
                   <g key={i}>
-                    <ellipse cx={x - 7} cy={y} rx={7} ry={5.2} fill={i % 2 ? GL : G} />
-                    <ellipse cx={x + 7} cy={y + 4} rx={7} ry={5.2} fill={i % 2 ? G : GL} />
+                    <ellipse
+                      cx={(p.x + ox).toFixed(1)}
+                      cy={(p.y + oy).toFixed(1)}
+                      rx={6}
+                      ry={3.8}
+                      fill={tone}
+                      transform={`rotate(${p.ang.toFixed(0)} ${(p.x + ox).toFixed(1)} ${(p.y + oy).toFixed(1)})`}
+                    />
+                    <ellipse
+                      cx={(p.x - ox).toFixed(1)}
+                      cy={(p.y - oy).toFixed(1)}
+                      rx={6}
+                      ry={3.8}
+                      fill={tone === GL ? G : GL}
+                      transform={`rotate(${p.ang.toFixed(0)} ${(p.x - ox).toFixed(1)} ${(p.y - oy).toFixed(1)})`}
+                    />
                   </g>
                 );
               })}
+              {/* 여름에 가지 끝에 피는 연분홍 꽃 */}
+              {tw.flower && (
+                <g>
+                  <circle cx={tw.tip[0] - 4} cy={tw.tip[1] - 4} r={4} fill={PINK} />
+                  <circle cx={tw.tip[0] + 4} cy={tw.tip[1] - 6} r={3.4} fill={PINK} />
+                  <circle cx={tw.tip[0]} cy={tw.tip[1] - 11} r={3} fill={PINK} />
+                </g>
+              )}
             </g>
           );
-        }),
-      )}
-    </>
-  ),
+        })}
+      </>
+    );
+  },
 
   // 유칼립투스: 줄기를 감싸듯 마주나는 둥근 은청색 잎
   eucalyptus: () => (
@@ -388,19 +444,41 @@ const FORMS: Record<PlantForm, () => JSX.Element> = {
     </>
   ),
 
-  // 파슬리: 곱슬거리는 잎 뭉치
-  parsley: () => (
-    <>
-      <path className="tn-stem" d={`M100 ${SOIL} V124`} />
-      <g transform="translate(100 108)">
-        {[0, 51, 102, 153, 204, 255, 306].map((a) => {
-          const r = (a * Math.PI) / 180;
-          return <circle key={a} cx={Math.cos(r) * 26} cy={Math.sin(r) * 19} r={16} fill={a % 102 ? G : GL} />;
-        })}
-        <circle cx={0} cy={0} r={16} fill={GD} />
+  // 파슬리: 잎자루 끝마다 곱슬거리는 잔잎이 셋씩. 세 갈래로 나뉜 겹잎.
+  parsley: () => {
+    /** 가장자리가 잘게 말린 작은 잎 하나. */
+    const Curl = ({ x, y, rot, s: sc }: { x: number; y: number; rot: number; s: number }) => (
+      <g transform={`translate(${x} ${y}) rotate(${rot}) scale(${sc})`}>
+        <path
+          fill={G}
+          d="M0 0 C-9 -3 -15 -9 -14 -17 Q-9 -14 -8 -19 Q-4 -15 -3 -22 Q0 -16 3 -22 Q4 -15 8 -19 Q9 -14 14 -17 C15 -9 9 -3 0 0Z"
+        />
+        <path className="tn-vein" d="M0 -2 V-16" />
       </g>
-    </>
-  ),
+    );
+    // 넓게 벌리면 아치처럼 보인다. 좁게 모아 둥근 덤불로 세운다.
+    const stalks: Array<{ tip: [number, number]; rot: number; s: number }> = [
+      { tip: [76, 140], rot: -32, s: 1 },
+      { tip: [100, 110], rot: 0, s: 1.15 },
+      { tip: [126, 136], rot: 32, s: 1 },
+    ];
+    return (
+      <>
+        {stalks.map((st) => {
+          const { d } = sprig(st.tip[0], st.tip[1], 1);
+          return (
+            <g key={st.tip[0]}>
+              <path className="tn-stem" d={d} />
+              {/* 잎자루 끝에서 셋으로 갈라진다 */}
+              <Curl x={st.tip[0] - 12 * st.s} y={st.tip[1] + 5} rot={st.rot - 38} s={st.s * 0.95} />
+              <Curl x={st.tip[0] + 12 * st.s} y={st.tip[1] + 5} rot={st.rot + 38} s={st.s * 0.95} />
+              <Curl x={st.tip[0]} y={st.tip[1] - 4} rot={st.rot} s={st.s * 1.15} />
+            </g>
+          );
+        })}
+      </>
+    );
+  },
 
   // 케일: 크게 주름진 잎. 서로 겹치지 않게 벌려 세운다.
   kale: () => {

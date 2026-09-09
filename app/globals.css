@@ -4927,6 +4927,7 @@ body {
   --toon-white: #f6f1e2;
   --toon-pot: #c48a68;
   --toon-pot-deep: #ab7053;
+  --toon-pink: #d59aae;
 }
 
 .plant-art {
@@ -5003,4 +5004,22 @@ body {
 /* 열매·꽃을 매다는 꼭지. 가지에서 뽑아 붙여 허공에 뜨지 않게 한다. */
 .tn-stalk {
   stroke-width: 3.5;
+}
+
+
+/* 잎 한쪽에 드는 빛. 납작한 색만 있으면 종이 오린 것처럼 보인다. */
+.tn-hi {
+  fill: rgba(255, 255, 255, .26);
+  stroke: none;
+}
+
+/* 잔가지. 줄기보다 가늘어야 잎이 커 보인다. */
+.tn-twig {
+  stroke-width: 3.4;
+}
+
+/* 작은 카드에서는 빛과 잎맥을 숨긴다. 그 크기에서는 얼룩으로만 보인다. */
+.pcard-figure .tn-hi,
+.pick-art .tn-hi {
+  display: none;
 }
