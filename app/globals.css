@@ -3575,17 +3575,17 @@ body {
 }
 
 /* 카드 위에 손을 올리면 식물이 살랑인다 */
-.pcard .plant-art,
-.plate-art .plant-art {
-  transform-origin: 50% 96%;
+.pcard .plant-art .tn-plant,
+.plate-art .plant-art .tn-plant {
+  transform-origin: 50% 82%;
 }
 
-.pcard:hover .plant-art {
+.pcard:hover .plant-art .tn-plant {
   animation: sway 1.8s ease-in-out infinite;
 }
 
 /* 도판의 삽화는 바람에 흔들리듯 아주 천천히 */
-.plate-art .plant-art {
+.plate-art .plant-art .tn-plant {
   animation: sway 7s ease-in-out infinite;
 }
 
@@ -4941,7 +4941,12 @@ body {
 
 .tn-stem { stroke-width: 6; }
 .tn-trunk { stroke-width: 8; }
-.tn-needle { stroke-width: 4.5; }
+/* 바늘잎은 잉크 밑선 위에 초록을 덧그어 다른 잎과 같은 "윤곽선 + 색"으로 만든다 */
+.tn-needle-ink { stroke-width: 7; }
+.tn-needle {
+  stroke: var(--toon-leaf-deep);
+  stroke-width: 3.6;
+}
 
 .tn-vein {
   stroke-width: 2.6;
@@ -4993,3 +4998,9 @@ body {
 
 .plant-table th.sorted { color: var(--ink); }
 .plant-table th.sorted .th-arrow { color: var(--green); }
+
+
+/* 열매·꽃을 매다는 꼭지. 가지에서 뽑아 붙여 허공에 뜨지 않게 한다. */
+.tn-stalk {
+  stroke-width: 3.5;
+}
