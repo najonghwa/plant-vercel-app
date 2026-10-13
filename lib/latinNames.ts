@@ -35,6 +35,10 @@ const LATIN_NAMES: Record<string, string> = {
   토마토: "Solanum lycopersicum",
   상추: "Lactuca sativa",
   깻잎: "Perilla frutescens",
+  드라세나: "Dracaena",
+  행운목: "Dracaena fragrans",
+  홍콩야자: "Schefflera arboricola",
+  콜레우스: "Coleus scutellarioides",
   고추: "Capsicum annuum",
 };
 

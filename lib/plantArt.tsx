@@ -35,7 +35,10 @@ export type PlantForm =
   | "tomato"
   | "celery"
   | "rocket"
-  | "cactus";
+  | "cactus"
+  | "dracaena"
+  | "schefflera"
+  | "coleus";
 
 /* 색은 CSS 변수로 두어 종이 배경에 맞춰 한 곳에서 조절한다. */
 const G = "var(--toon-leaf)";
@@ -49,6 +52,7 @@ const BLUE = "var(--toon-blue)";
 const WHITE = "var(--toon-white)";
 const OLIVE = "var(--toon-olive)";
 const PINK = "var(--toon-pink)";
+const MAGENTA = "var(--toon-magenta)";
 
 /** 흙 높이. 줄기는 이 아래에서 시작해 화분 뒤로 숨는다. */
 const SOIL = 196;
@@ -594,6 +598,125 @@ const FORMS: Record<PlantForm, () => JSX.Element> = {
       <circle cx={100} cy={92} r={8} fill={RED} />
     </>
   ),
+  // 드라세나: 가는 줄기 끝에서 좁고 긴 잎이 분수처럼 퍼진다
+  dracaena: () => {
+    const crown: [number, number] = [100, 104];
+    const leaves = [
+      { deg: 196, len: 60, w: 8, fill: GD, stripe: false },
+      { deg: 214, len: 58, w: 8, fill: G, stripe: true },
+      { deg: 232, len: 56, w: 8, fill: GD, stripe: false },
+      { deg: 252, len: 60, w: 8, fill: G, stripe: true },
+      { deg: 270, len: 62, w: 8, fill: GD, stripe: false },
+      { deg: 288, len: 60, w: 8, fill: G, stripe: true },
+      { deg: 308, len: 56, w: 8, fill: GD, stripe: false },
+      { deg: 326, len: 58, w: 8, fill: G, stripe: true },
+      { deg: 344, len: 60, w: 8, fill: GD, stripe: false },
+      // 아래로 처지는 묵은 잎 둘
+      { deg: 170, len: 50, w: 7, fill: G, stripe: false },
+      { deg: 10, len: 50, w: 7, fill: G, stripe: false },
+      { deg: 154, len: 44, w: 7, fill: GD, stripe: false },
+      { deg: 26, len: 44, w: 7, fill: GD, stripe: false },
+    ];
+    return (
+      <>
+        <path className="tn-trunk" d={`M100 ${SOIL} C101 170 99 140 ${crown[0]} ${crown[1] + 4}`} />
+        {/* 잎이 떨어진 자리가 줄기에 고리로 남는다 */}
+        {[150, 132].map((y) => (
+          <path key={y} className="tn-vein" d={`M95 ${y} h10`} />
+        ))}
+        {leaves.map((l) => {
+          const r = (l.deg * Math.PI) / 180;
+          return (
+            <g key={l.deg}>
+              <Leaf x={crown[0]} y={crown[1]} deg={l.deg} len={l.len} w={l.w} fill={l.fill} vein={!l.stripe} />
+              {l.stripe && (
+                <path
+                  stroke={CREAM}
+                  strokeWidth={3}
+                  d={`M${(crown[0] + Math.cos(r) * 6).toFixed(1)} ${(crown[1] + Math.sin(r) * 6).toFixed(1)} L${(crown[0] + Math.cos(r) * (l.len - 8)).toFixed(1)} ${(crown[1] + Math.sin(r) * (l.len - 8)).toFixed(1)}`}
+                />
+              )}
+            </g>
+          );
+        })}
+      </>
+    );
+  },
+
+  // 홍콩야자: 잎자루 끝에서 작은 잎 일곱 장이 우산살처럼 퍼진다
+  schefflera: () => {
+    const Umbrella = ({ x, y, s, fill }: { x: number; y: number; s: number; fill: string }) => (
+      <g>
+        {Array.from({ length: 7 }, (_, i) => {
+          // 잎자루가 닿는 아래쪽(90도) 방향은 비우고 나머지 300도에 고르게 편다
+          const deg = 120 + (300 / 7) * i + 300 / 14;
+          return <Leaf key={i} x={x} y={y} deg={deg} len={27 * s} w={10.5 * s} fill={fill} />;
+        })}
+        <circle cx={x} cy={y} r={3.2 * s} fill={GD} />
+      </g>
+    );
+    const stalks: Array<{ tip: [number, number]; s: number; fill: string }> = [
+      { tip: [54, 128], s: 0.95, fill: GD },
+      { tip: [146, 132], s: 0.95, fill: GD },
+      { tip: [100, 84], s: 1.12, fill: G },
+    ];
+    return (
+      <>
+        {stalks.map((st) => (
+          <path key={st.tip[0]} className="tn-stem" d={sprig(st.tip[0], st.tip[1], 0).d} />
+        ))}
+        {stalks.map((st) => (
+          <Umbrella key={st.tip[0]} x={st.tip[0]} y={st.tip[1]} s={st.s} fill={st.fill} />
+        ))}
+      </>
+    );
+  },
+
+  // 콜레우스: 톱니 달걀꼴 잎이 마주나고, 잎 가운데가 분홍빛이다
+  coleus: () => {
+    /** 위로 향한 톱니 잎 한 장의 윤곽. 밑동 (0,0), 끝 (0,-len). */
+    const toothed = (len: number, w: number, teeth: number, bite: number) => {
+      const side = (sign: number) => {
+        const pts: string[] = [];
+        for (let i = 1; i < teeth; i += 1) {
+          const t = i / teeth;
+          const half = w * Math.pow(Math.sin(Math.PI * t), 0.75);
+          const off = i % 2 ? bite : -bite;
+          pts.push(`L${(sign * (half + off)).toFixed(1)} ${(-len * t).toFixed(1)}`);
+        }
+        return pts;
+      };
+      const left = side(-1);
+      const right = side(1).reverse();
+      return `M0 0 ${left.join(" ")} L0 ${-len} ${right.join(" ")} Z`;
+    };
+    const Blade = ({ x, y, rot, len, w }: { x: number; y: number; rot: number; len: number; w: number }) => (
+      <g transform={`translate(${x} ${y}) rotate(${rot})`}>
+        <path fill={G} d={toothed(len, w, 14, 1.6)} />
+        {/* 잎 가운데를 따라 번지는 분홍 무늬. 윤곽선 없이 색만 얹는다. */}
+        <path stroke="none" fill={MAGENTA} d={toothed(len * 0.78, w * 0.5, 10, 0.8)} transform={`translate(0 ${-len * 0.06})`} />
+        <path className="tn-vein" d={`M0 -3 V${-len + 6}`} />
+      </g>
+    );
+    const pairs = [
+      { y: 164, len: 50, w: 22, spread: 22 },
+      { y: 120, len: 42, w: 19, spread: 38 },
+    ];
+    return (
+      <>
+        <path className="tn-stem" d={`M100 ${SOIL} V76`} />
+        {pairs.map((p) => (
+          <g key={p.y}>
+            <Blade x={100} y={p.y} rot={-90 + p.spread} len={p.len} w={p.w} />
+            <Blade x={100} y={p.y} rot={90 - p.spread} len={p.len} w={p.w} />
+          </g>
+        ))}
+        {/* 꼭대기의 어린 잎 한 쌍 */}
+        <Blade x={100} y={84} rot={-30} len={26} w={12} />
+        <Blade x={100} y={84} rot={30} len={26} w={12} />
+      </>
+    );
+  },
 };
 
 const KEYWORD_FORMS: Record<string, PlantForm> = {
@@ -652,6 +775,13 @@ const KEYWORD_FORMS: Record<string, PlantForm> = {
   루콜라: "rocket",
   치커리: "rocket",
   선인장: "cactus",
+  드라세나: "dracaena",
+  행운목: "dracaena",
+  마지나타: "dracaena",
+  홍콩야자: "schefflera",
+  쉐플레라: "schefflera",
+  셰플레라: "schefflera",
+  콜레우스: "coleus",
 };
 
 // 긴 이름부터 맞춰야 "레몬타임"이 "레몬"으로 안 간다.
