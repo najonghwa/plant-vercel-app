@@ -123,6 +123,7 @@ create table if not exists plant_photos (
 alter table plant_photos add column if not exists thumb_url text not null default '';
 alter table plant_photos alter column image_url drop not null;
 alter table plant_photos alter column plant_id drop not null;
+alter table plant_photos add column if not exists updated_at timestamptz not null default now();
 
 create index if not exists watering_logs_plant_date_idx
   on watering_logs (plant_name, watered_at desc);

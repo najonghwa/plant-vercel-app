@@ -492,7 +492,8 @@ async function preparePhoto(file: File) {
     if (image.length > PHOTO_MAX_CHARS) {
       throw new Error("사진을 충분히 줄이지 못했습니다. 다른 사진으로 시도해주세요.");
     }
-    return { image, thumb: drawToDataUrl(source, 360, 0.6) };
+    // 카드 한 칸(약 180px)을 2~3배 픽셀 화면에서 채우려면 가로 480px는 있어야 한다. 360px로는 흐려 보였다.
+    return { image, thumb: drawToDataUrl(source, 640, 0.8) };
   } finally {
     if (typeof (source as ImageBitmap).close === "function") (source as ImageBitmap).close();
   }

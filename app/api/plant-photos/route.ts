@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { query, queryOne } from "@/lib/db";
+import { ensurePlantPhotosTable } from "@/lib/photoTable";
 import type { PlantPhoto } from "@/lib/types";
 import {
   DATE_RE,
@@ -7,6 +8,7 @@ import {
   MAX_PHOTOS_TOTAL,
   PHOTO_RETURNING,
   checkImage,
+  thumbUrlSql,
 } from "@/lib/photoRules";
 
 /**
@@ -18,48 +20,11 @@ import {
  * 저장 구조는 그대로 두고 의미만 넓혔다.
  *
  * 사진은 별도 스토리지 없이 data URL 문자열로 Postgres에 넣는다.
- * 대신 목록에서 원본을 다 내려받으면 느려지므로 작은 썸네일을 따로 저장하고,
- * 목록 응답에는 썸네일만 싣는다. 원본은 /api/plant-photos/[id]에서 개별로 가져간다.
+ * 목록 응답에는 사진을 싣지 않고 썸네일 주소(/api/plant-photos/[id]/thumb)만 준다.
+ * 크게 볼 사진은 /api/plant-photos/[id]에서 개별로 가져간다.
  */
 /** 목록은 최신부터 이만큼만 내려준다. */
 const LIST_LIMIT = 120;
-
-// 요청마다 DDL을 돌리지 않도록 프로세스당 한 번만 실행한다.
-let tableReady: Promise<void> | null = null;
-
-function ensurePlantPhotosTable() {
-  if (!tableReady) {
-    tableReady = migratePlantPhotos().catch((error) => {
-      tableReady = null;
-      throw error;
-    });
-  }
-  return tableReady;
-}
-
-async function migratePlantPhotos() {
-  await query(
-    `create table if not exists plant_photos (
-       id uuid primary key default gen_random_uuid(),
-       plant_id uuid references plants(id) on delete cascade,
-       image_url text,
-       note text not null default '',
-       captured_at date not null default current_date,
-       created_at timestamptz not null default now()
-     )`,
-  );
-
-  await query("alter table plant_photos add column if not exists thumb_url text not null default ''");
-  // 사진 없이 메모만 남기는 기록을 허용한다.
-  await query("alter table plant_photos alter column image_url drop not null");
-  // 특정 식물이 아닌 기록(화분들 모아 찍은 사진 등)을 허용한다.
-  await query("alter table plant_photos alter column plant_id drop not null");
-
-  await query(
-    `create index if not exists plant_photos_plant_captured_idx
-     on plant_photos (plant_id, captured_at desc, created_at desc)`,
-  );
-}
 
 export async function GET(request: Request) {
   await ensurePlantPhotosTable();
@@ -77,7 +42,7 @@ export async function GET(request: Request) {
        ph.id,
        ph.plant_id,
        p.name as plant_name,
-       nullif(ph.thumb_url, '') as thumb_url,
+       ${thumbUrlSql("ph")} as thumb_url,
        ph.image_url is not null as has_image,
        ph.note,
        ph.captured_at::text,

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { query, queryOne } from "@/lib/db";
+import { ensurePlantPhotosTable } from "@/lib/photoTable";
 import {
   DATE_RE,
   MAX_PHOTOS_PER_PLANT,
@@ -15,6 +16,7 @@ type Params = {
 
 /** 목록에는 썸네일만 실려 있으므로, 크게 볼 때 원본을 이 경로로 따로 가져간다. */
 export async function GET(_request: Request, { params }: Params) {
+  await ensurePlantPhotosTable();
   const { id } = await params;
 
   const rows = await query<{ image_url: string }>(
@@ -30,6 +32,7 @@ export async function GET(_request: Request, { params }: Params) {
 }
 
 export async function DELETE(_request: Request, { params }: Params) {
+  await ensurePlantPhotosTable();
   const { id } = await params;
 
   const deleted = await query<{ id: string }>(
@@ -50,6 +53,7 @@ export async function DELETE(_request: Request, { params }: Params) {
  * 사진은 image_url+thumb_url로 바꾸거나 remove_image로 뺀다.
  */
 export async function PATCH(request: Request, { params }: Params) {
+  await ensurePlantPhotosTable();
   const { id } = await params;
   const parsed: unknown = await request.json().catch(() => null);
   // null·숫자 같은 본문이면 `in` 검사에서 터진다. 빈 객체로 본다.
@@ -121,14 +125,14 @@ export async function PATCH(request: Request, { params }: Params) {
   const rows = image
     ? await query<PlantPhoto>(
         `update plant_photos
-         set plant_id = $2, note = $3, captured_at = $4::date, image_url = $5, thumb_url = $6
+         set plant_id = $2, note = $3, captured_at = $4::date, image_url = $5, thumb_url = $6, updated_at = now()
          where id = $1
          returning ${PHOTO_RETURNING}`,
         [id, plantId, note, capturedAt, image.url, image.thumb],
       )
     : await query<PlantPhoto>(
         `update plant_photos
-         set plant_id = $2, note = $3, captured_at = $4::date
+         set plant_id = $2, note = $3, captured_at = $4::date, updated_at = now()
          where id = $1
          returning ${PHOTO_RETURNING}`,
         [id, plantId, note, capturedAt],
