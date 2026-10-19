@@ -65,7 +65,7 @@ export type DayMemo = {
 
 export type PlantPhoto = {
   id: string;
-  /** null이면 특정 식물이 아닌 기록(화분들 모아 찍은 사진 등). */
+  /** null이면 "공통" 기록 — 식물 하나에 묶지 않은 것(화분들 모아 찍은 사진 등). */
   plant_id: string | null;
   plant_name: string | null;
   /** 썸네일 주소(/api/plant-photos/[id]/thumb?v=…). 사진 없는 기록이면 null. 크게 볼 사진은 /api/plant-photos/[id]. */

@@ -31,7 +31,7 @@ async function migratePlantPhotos() {
   await query("alter table plant_photos add column if not exists thumb_url text not null default ''");
   // 사진 없이 메모만 남기는 기록을 허용한다.
   await query("alter table plant_photos alter column image_url drop not null");
-  // 특정 식물이 아닌 기록(화분들 모아 찍은 사진 등)을 허용한다.
+  // 식물 하나에 묶지 않는 "공통" 기록(화분들 모아 찍은 사진 등)을 허용한다.
   await query("alter table plant_photos alter column plant_id drop not null");
   // 썸네일 주소에 붙는 판 번호. 사진을 바꾸면 주소가 바뀌어 브라우저가 옛 사진을 쓰지 않는다.
   await query("alter table plant_photos add column if not exists updated_at timestamptz not null default now()");

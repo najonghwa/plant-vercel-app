@@ -570,7 +570,7 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new Error(body.error ?? `${url} 요청 실패`);
+    throw new Error(body.error ?? "서버에서 처리하지 못했습니다. 잠시 뒤 다시 시도해주세요.");
   }
 
   return response.json();
@@ -629,7 +629,7 @@ export default function Page() {
   const photoInputRef = useRef<HTMLInputElement>(null);
   const recordFileRef = useRef<HTMLInputElement>(null);
   const recordFormRef = useRef<HTMLFormElement>(null);
-  // 기록 탭 모아보기: "" 전체, "none" 식물 없음, 그 외 식물 id
+  // 기록 탭 모아보기: "" 전체, "none" 공통(식물에 안 묶은 기록), 그 외 식물 id
   const [recordFilter, setRecordFilter] = useState("");
   const [filteredRecords, setFilteredRecords] = useState<PlantPhoto[]>([]);
   const [filteredKey, setFilteredKey] = useState<string | null>(null);
@@ -1316,7 +1316,7 @@ export default function Page() {
         if (shot && shot <= today && untouched) {
           exifDate.current = shot;
           setPhotoDraft((prev) => ({ ...prev, capturedAt: shot }));
-          setPhotoDateHint(shot === today ? "" : `사진 찍은 날(${shot})로 맞췄습니다`);
+          setPhotoDateHint(shot === today ? "" : `사진 찍은 날(${Number(shot.slice(5, 7))}월 ${Number(shot.slice(8, 10))}일)로 맞췄습니다`);
         }
       } finally {
         // 실패했을 때 input에 같은 파일이 남아 있으면 다시 골라도 change가 안 뜬다.
@@ -1336,7 +1336,7 @@ export default function Page() {
 
     const capturedAt = photoDraft.capturedAt || today;
     if (capturedAt > today) {
-      window.alert("촬영일은 오늘 이후로 지정할 수 없습니다.");
+      window.alert("날짜는 오늘 이후로 지정할 수 없습니다.");
       return;
     }
 
@@ -1505,7 +1505,7 @@ export default function Page() {
     const ok = window.confirm(
       `${targets.length}종 전부에 같은 급수 설정을 넣습니다.\n` +
         `수분 ${values.moisture_min_pct}% 미만 · ${values.watering_seconds}초 · ` +
-        `쿨다운 ${values.cooldown_hours}시간 · 하루 ${values.max_runs_per_day}회`,
+        `다음 급수까지 ${values.cooldown_hours}시간 · 하루 ${values.max_runs_per_day}회`,
     );
     if (!ok) return;
 
@@ -1542,7 +1542,7 @@ export default function Page() {
           watering_seconds: 5,
         }),
       });
-      window.alert("펌프 테스트 명령을 만들었습니다. ESP32가 30초 안에 가져가서 5초 작동합니다.");
+      window.alert("펌프 테스트를 보냈습니다. 30초 안에 펌프가 5초 동안 돕니다.");
     });
   }
 
@@ -1601,10 +1601,10 @@ export default function Page() {
     const nameOf = new Map(model.map((plant) => [plant.id, plant.name]));
     const options = Object.entries(recordCounts)
       .filter(([key, n]) => n > 0 && (key === "none" || nameOf.has(key)))
-      .map(([key, n]) => ({ key, n, label: key === "none" ? "식물 없음" : (nameOf.get(key) as string) }));
+      .map(([key, n]) => ({ key, n, label: key === "none" ? "공통" : (nameOf.get(key) as string) }));
     // 기록이 아직 없는 식물을 골라 들어온 경우에도 칸이 보이게 한다.
     if (recordFilter && !options.some((option) => option.key === recordFilter)) {
-      const label = recordFilter === "none" ? "식물 없음" : nameOf.get(recordFilter);
+      const label = recordFilter === "none" ? "공통" : nameOf.get(recordFilter);
       if (label) options.push({ key: recordFilter, n: 0, label });
     }
     return options.sort((a, b) => b.n - a.n || a.label.localeCompare(b.label, "ko"));
@@ -1770,7 +1770,7 @@ export default function Page() {
           {activeTab === "dashboard" && (
             <section className="dash">
               {loading ? (
-                <div className="empty">DB에서 데이터를 불러오는 중입니다.</div>
+                <div className="empty">불러오는 중입니다.</div>
               ) : filtered.length === 0 ? (
                 <div className="empty">표시할 식물이 없습니다. ‘새 식물’ 메뉴에서 추가해보세요.</div>
               ) : (
@@ -2083,7 +2083,7 @@ export default function Page() {
                             <button
                               type="button"
                               className="record-open"
-                              title="열어서 보기 · 고치기"
+                              title="눌러서 크게 보기 · 고치기"
                               onClick={() => openRecord(entry)}
                             >
                               {entry.thumb_url && entry.has_image ? (
@@ -2244,7 +2244,7 @@ export default function Page() {
                             <button
                               type="button"
                               className="day-record-open"
-                              title="열어서 보기 · 고치기"
+                              title="눌러서 크게 보기 · 고치기"
                               onClick={() => openRecord(photo)}
                             >
                               {photo.has_image && photo.thumb_url ? (
@@ -2256,7 +2256,7 @@ export default function Page() {
                                 <span className="day-record-thumb note-only"><StickyNote size={14} /></span>
                               )}
                               <span className="day-record-body">
-                                <strong>{photo.plant_name ?? "전체"}</strong>
+                                <strong>{photo.plant_name ?? "공통"}</strong>
                                 {photo.note && <span className="day-record-note">{photo.note}</span>}
                               </span>
                             </button>
@@ -2289,20 +2289,20 @@ export default function Page() {
                     <form className="day-form" onSubmit={submitDayRecord}>
                       <div className="day-form-top">
                         <label className="field">
-                          <span className="meta">식물 (선택)</span>
+                          <span className="meta">식물</span>
                           <select
                             className="select"
                             value={dayDraft.plantId}
                             onChange={(event) => setDayDraft({ ...dayDraft, plantId: event.target.value })}
                           >
-                            <option value="">특정 식물 아님</option>
+                            <option value="">공통</option>
                             {model.map((plant) => (
                               <option key={plant.id} value={plant.id}>{plant.name}</option>
                             ))}
                           </select>
                         </label>
                         <label className="field">
-                          <span className="meta">사진 (선택)</span>
+                          <span className="meta">사진</span>
                           <input
                             ref={dayFileRef}
                             className="input file-input"
@@ -2363,18 +2363,18 @@ export default function Page() {
               <div className="panel">
                 <div className="panel-title">
                   <h2><Plus size={18} /> 기록 남기기</h2>
-                  <span className="meta">사진이든 메모든</span>
+                  <span className="meta">사진 · 메모</span>
                 </div>
 
                 <form ref={recordFormRef} className="form-grid photo-form" onSubmit={submitPhoto}>
                   <label className="field">
-                    <span className="meta">식물 (선택)</span>
+                    <span className="meta">식물</span>
                     <select
                       className="select"
                       value={photoDraft.plantId}
                       onChange={(event) => setPhotoDraft({ ...photoDraft, plantId: event.target.value })}
                     >
-                      <option value="">특정 식물 아님 (전체 사진 · 일반 메모)</option>
+                      <option value="">공통 (베란다 전체 · 일반 메모)</option>
                       {model.map((plant) => (
                         <option key={plant.id} value={plant.id}>{plant.name}</option>
                       ))}
@@ -2398,7 +2398,7 @@ export default function Page() {
                   </label>
 
                   <div className="field photo-picker">
-                    <span className="meta">사진 (선택)</span>
+                    <span className="meta">사진</span>
                     <label className={`photo-pick ${isBusy("photo-prepare") || isBusy("photo-upload") ? "busy" : ""}`}>
                       <input
                         ref={photoInputRef}
@@ -2522,7 +2522,7 @@ export default function Page() {
                         <button
                           type="button"
                           className="record-open"
-                          title="열어서 보기 · 고치기"
+                          title="눌러서 크게 보기 · 고치기"
                           onClick={() => openRecord(photo)}
                         >
                           {photo.has_image && photo.thumb_url ? (
@@ -2530,7 +2530,7 @@ export default function Page() {
                               {/* eslint-disable-next-line @next/next/no-img-element */}
                               <img
                                 src={photo.thumb_url}
-                                alt={`${photo.plant_name ?? "전체"} ${photo.captured_at}`}
+                                alt={`${photo.plant_name ?? "공통"} ${photo.captured_at}`}
                                 loading="lazy"
                                 onError={(event) => {
                                   event.currentTarget.style.display = "none";
@@ -2544,7 +2544,7 @@ export default function Page() {
                           )}
                           <span className="record-caption">
                             <span className="photo-caption-main">
-                              <strong className={photo.plant_id ? "" : "muted-name"}>{photo.plant_name ?? "전체"}</strong>
+                              <strong className={photo.plant_id ? "" : "muted-name"}>{photo.plant_name ?? "공통"}</strong>
                               <span className="meta">{photo.captured_at}</span>
                             </span>
                             {photo.note && <span className="record-note">{photo.note}</span>}
@@ -2579,19 +2579,19 @@ export default function Page() {
                   <div className="meta">모든 식물에 같은 값 넣기</div>
                   <div className="bulk-auto-grid">
                     <label>
-                      <span>수분 기준 %</span>
+                      <span>수분 기준(%)</span>
                       <input name="moisture_min_pct" type="number" min={MOISTURE_RANGE[0]} max={MOISTURE_RANGE[1]} defaultValue={30} />
                     </label>
                     <label>
-                      <span>급수 초</span>
+                      <span>급수 시간(초)</span>
                       <input name="watering_seconds" type="number" step={1} min={SECONDS_RANGE[0]} max={SECONDS_RANGE[1]} defaultValue={5} />
                     </label>
                     <label>
-                      <span>쿨다운 시간</span>
+                      <span>다시 주기까지(시간)</span>
                       <input name="cooldown_hours" type="number" step={1} min={COOLDOWN_RANGE[0]} max={COOLDOWN_RANGE[1]} defaultValue={12} />
                     </label>
                     <label>
-                      <span>하루 최대</span>
+                      <span>하루 최대(회)</span>
                       <input name="max_runs_per_day" type="number" step={1} min={MAX_RUNS_RANGE[0]} max={MAX_RUNS_RANGE[1]} defaultValue={2} />
                     </label>
                   </div>
@@ -2607,10 +2607,10 @@ export default function Page() {
                         <th>식물</th>
                         <th>자동급수</th>
                         <th>토양센서</th>
-                        <th>수분 기준 %</th>
-                        <th>급수 초</th>
-                        <th>쿨다운</th>
-                        <th>하루 최대</th>
+                        <th>수분 기준(%)</th>
+                        <th>급수(초)</th>
+                        <th>간격(시간)</th>
+                        <th>하루 최대(회)</th>
                         <th>저장</th>
                         <th>펌프</th>
                       </tr>
@@ -2805,7 +2805,7 @@ export default function Page() {
                     <CheckCircle size={16} /> 식물 저장
                   </button>
                 </form>
-                <p className="hint">분류·물 요구량·일조량 등 나머지 정보는 나중에 채워 넣을 수 있어요.</p>
+                <p className="hint">아는 식물이면 설명·학명·그림이 이름에 맞춰 자동으로 붙습니다.</p>
               </div>
             </section>
           )}
@@ -2829,7 +2829,7 @@ export default function Page() {
             >
               <div className="photo-viewer-head">
                 <div>
-                  <strong>{view.photo.plant_name ?? "전체"}</strong>
+                  <strong>{view.photo.plant_name ?? "공통"}</strong>
                   <span className="meta">{view.photo.captured_at}</span>
                 </div>
                 <button className="icon-btn" title="닫기" onClick={() => setRecordView(null)}><X size={16} /></button>
@@ -2846,16 +2846,16 @@ export default function Page() {
                   </div>
                 ) : view.status === "ready" && view.imageUrl ? (
                   /* eslint-disable-next-line @next/next/no-img-element */
-                  <img src={view.imageUrl} alt={`${view.photo.plant_name ?? "전체"} ${view.photo.captured_at}`} />
+                  <img src={view.imageUrl} alt={`${view.photo.plant_name ?? "공통"} ${view.photo.captured_at}`} />
                 ) : view.status === "error" ? (
                   <div className="empty compact-empty">
-                    <p>원본을 불러오지 못했습니다.</p>
+                    <p>사진을 불러오지 못했습니다.</p>
                     <button className="btn sm" onClick={() => loadRecordImage(view.photo)}>
                       <RefreshCw size={14} /> 다시 시도
                     </button>
                   </div>
                 ) : (
-                  <div className="empty compact-empty">원본을 불러오는 중입니다.</div>
+                  <div className="empty compact-empty">사진을 불러오는 중입니다.</div>
                 )}
               </div>
 
@@ -2901,7 +2901,7 @@ export default function Page() {
                 <label className="field">
                   <span className="meta">식물</span>
                   <select className="select" value={view.draft.plantId} onChange={(event) => setDraft({ plantId: event.target.value })}>
-                    <option value="">특정 식물 아님</option>
+                    <option value="">공통</option>
                     {model.map((plant) => (
                       <option key={plant.id} value={plant.id}>{plant.name}</option>
                     ))}

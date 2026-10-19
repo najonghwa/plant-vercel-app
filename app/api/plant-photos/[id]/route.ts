@@ -49,7 +49,7 @@ export async function DELETE(_request: Request, { params }: Params) {
 
 /**
  * 기록 고치기. 잘못 올린 기록을 지우고 다시 올리지 않아도 되게 한다.
- * 보낸 칸만 바꾼다 — plant_id(null이면 "특정 식물 아님"), note, captured_at,
+ * 보낸 칸만 바꾼다 — plant_id(null이면 "공통"), note, captured_at,
  * 사진은 image_url+thumb_url로 바꾸거나 remove_image로 뺀다.
  */
 export async function PATCH(request: Request, { params }: Params) {

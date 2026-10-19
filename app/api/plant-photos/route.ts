@@ -13,8 +13,8 @@ import {
 
 /**
  * 기록. 날짜 + 메모 + (선택) 사진 한 장으로 이뤄진다.
- * 사진 없이 메모만 남길 수도 있고, 특정 식물이 아닌 전체 사진도 남길 수 있다
- * (plant_id가 null이면 "특정 식물 아님").
+ * 사진 없이 메모만 남길 수도 있고, 식물 하나에 묶지 않는 공통 기록도 남길 수 있다
+ * (plant_id가 null이면 "공통").
  *
  * 테이블 이름이 plant_photos인 것은 사진 전용으로 먼저 만들어진 흔적이다.
  * 저장 구조는 그대로 두고 의미만 넓혔다.
@@ -30,7 +30,7 @@ export async function GET(request: Request) {
   await ensurePlantPhotosTable();
 
   // 식물 하나의 기록만 볼 때는 전체 목록의 상한에 잘리지 않도록 따로 조회한다.
-  // plant_id=none 은 "특정 식물 아님" 기록만.
+  // plant_id=none 은 "공통" 기록만.
   const raw = new URL(request.url).searchParams.get("plant_id");
   const onlyUnassigned = raw === "none";
   const plantId = raw && !onlyUnassigned ? raw : null;
