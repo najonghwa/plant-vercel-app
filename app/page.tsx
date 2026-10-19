@@ -6,6 +6,7 @@ import {
   Activity,
   AlertTriangle,
   BarChart3,
+  Camera,
   CalendarDays,
   Check,
   CheckCircle,
@@ -149,7 +150,7 @@ function median(values: number[]) {
 const MIN_GAPS_FOR_LEARNING = 2;
 
 /** 서버 상태를 바꾸지 않는 run() 키. 조회 결과를 무효화하는 카운터를 올리면 안 된다. */
-const READ_ONLY_KEYS = /^(photos$|photo-open:|photo-prepare$|entries:|entry-prepare$)/;
+const READ_ONLY_KEYS = /^(photos$|photo-open:|photo-prepare$|record-prepare$|records:|entries:|entry-prepare$)/;
 
 function estimateBaseInterval(waterLevel: string) {
   if (waterLevel === "매우 적게") return 21;
@@ -497,6 +498,66 @@ async function preparePhoto(file: File) {
   }
 }
 
+/**
+ * 폰 사진(JPEG)의 EXIF에서 찍은 날을 읽는다. 없으면 null.
+ * 지난 사진을 올릴 때 날짜가 오늘로 들어가 기록이 엉뚱한 날에 붙던 것을 막는다.
+ */
+async function readPhotoDate(file: File): Promise<string | null> {
+  if (!/jpe?g$/i.test(file.type) && !/\.jpe?g$/i.test(file.name)) return null;
+  const view = new DataView(await file.slice(0, 256 * 1024).arrayBuffer());
+  if (view.byteLength < 4 || view.getUint16(0) !== 0xffd8) return null;
+
+  let offset = 2;
+  while (offset + 4 < view.byteLength) {
+    const marker = view.getUint16(offset);
+    const size = view.getUint16(offset + 2);
+    if (marker === 0xffe1 && view.getUint32(offset + 4) === 0x45786966) {
+      const tiff = offset + 10;
+      const little = view.getUint16(tiff) === 0x4949;
+      const u16 = (at: number) => view.getUint16(at, little);
+      const u32 = (at: number) => view.getUint32(at, little);
+      const readTag = (ifd: number, tag: number) => {
+        if (ifd + 2 > view.byteLength) return null;
+        const count = u16(ifd);
+        for (let i = 0; i < count; i += 1) {
+          const entry = ifd + 2 + i * 12;
+          if (entry + 12 > view.byteLength) return null;
+          if (u16(entry) === tag) return entry;
+        }
+        return null;
+      };
+      const ifd0 = tiff + u32(tiff + 4);
+      const exifPtr = readTag(ifd0, 0x8769);
+      const dateOf = (entry: number | null) => {
+        if (entry === null) return null;
+        const at = tiff + u32(entry + 8);
+        if (at + 19 > view.byteLength) return null;
+        let text = "";
+        for (let i = 0; i < 10; i += 1) text += String.fromCharCode(view.getUint8(at + i));
+        const m = /^(\d{4}):(\d{2}):(\d{2})$/.exec(text);
+        return m && m[1] !== "0000" ? `${m[1]}-${m[2]}-${m[3]}` : null;
+      };
+      // 찍은 시각(DateTimeOriginal) → 없으면 파일 시각(DateTime)
+      return (exifPtr !== null ? dateOf(readTag(tiff + u32(exifPtr + 8), 0x9003)) : null) ?? dateOf(readTag(ifd0, 0x0132));
+    }
+    if ((marker & 0xff00) !== 0xff00 || marker === 0xffda) break;
+    offset += 2 + size;
+  }
+  return null;
+}
+
+function formatBytes(bytes: number | null | undefined) {
+  if (bytes === null || bytes === undefined) return "";
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))}KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)}GB`;
+}
+
+/** 기록을 식물별로 묶는 열쇠. 식물을 고르지 않은 기록은 "none". */
+const recordKeyOf = (plantId: string | null) => plantId ?? "none";
+
+type RecordStats = { photos: number; limit: number; bytes: number | null; db_bytes: number | null };
+
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     ...options,
@@ -554,10 +615,31 @@ export default function Page() {
   // 캘린더에서 남기는 급수 기록까지 그 날짜로 저장된다.
   const [photoDraft, setPhotoDraft] = useState({ plantId: "", note: "", capturedAt: "" });
   const [pendingPhoto, setPendingPhoto] = useState<{ image: string; thumb: string; name: string } | null>(null);
-  const [lightbox, setLightbox] = useState<
-    { photo: PlantPhoto; imageUrl: string | null; status: "loading" | "ready" | "error" } | null
-  >(null);
+  // 기록 하나를 열어 크게 보고 고치는 창. 예전의 사진 크게보기를 대신한다.
+  const [recordView, setRecordView] = useState<{
+    photo: PlantPhoto;
+    imageUrl: string | null;
+    status: "loading" | "ready" | "error" | "none";
+    draft: { plantId: string; note: string; capturedAt: string };
+    pending: { image: string; thumb: string; name: string } | null;
+    removeImage: boolean;
+    error: string;
+  } | null>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
+  const recordFileRef = useRef<HTMLInputElement>(null);
+  const recordFormRef = useRef<HTMLFormElement>(null);
+  // 기록 탭 모아보기: "" 전체, "none" 식물 없음, 그 외 식물 id
+  const [recordFilter, setRecordFilter] = useState("");
+  const [filteredRecords, setFilteredRecords] = useState<PlantPhoto[]>([]);
+  const [filteredKey, setFilteredKey] = useState<string | null>(null);
+  const [recordCounts, setRecordCounts] = useState<Record<string, number>>({});
+  const [recordStats, setRecordStats] = useState<RecordStats | null>(null);
+  // 사진에서 읽어 넣은 날짜. 사용자가 손대지 않았으면 다른 사진을 고를 때 다시 바꿔도 된다.
+  const exifDate = useRef("");
+  const [photoDateHint, setPhotoDateHint] = useState("");
+  const [recordSavedAt, setRecordSavedAt] = useState(0);
+  // 탭을 바꿀 때 어디로 스크롤할지. 기본은 맨 위.
+  const pendingScroll = useRef<"top" | "record-form">("top");
   const dateInputRef = useRef<HTMLInputElement>(null);
   const [selectedDate, setSelectedDate] = useState(today);
   const [calendarMonth, setCalendarMonth] = useState(today.slice(0, 7));
@@ -653,7 +735,11 @@ export default function Page() {
     const seq = ++photoSeq.current;
     const mutationsAtStart = mutationCount.current;
     const wasLoaded = photosLoaded;
-    const data = await fetchJson<{ photos: PlantPhoto[] }>("/api/plant-photos");
+    const data = await fetchJson<{
+      photos: PlantPhoto[];
+      counts?: Array<{ plant_id: string | null; n: number }>;
+      stats?: RecordStats;
+    }>("/api/plant-photos");
 
     if (seq !== photoSeq.current) return;
     // 아직 한 번도 못 불러온 상태라면 덮어쓸 로컬 데이터가 없다. 여기서 그냥 반환하면
@@ -661,6 +747,10 @@ export default function Page() {
     if (wasLoaded && mutationsAtStart !== mutationCount.current) return;
 
     setPhotos(data.photos);
+    if (data.counts) {
+      setRecordCounts(Object.fromEntries(data.counts.map((row) => [recordKeyOf(row.plant_id), row.n])));
+    }
+    if (data.stats) setRecordStats(data.stats);
     setPhotosLoaded(true);
     setPhotosError("");
   }
@@ -689,6 +779,46 @@ export default function Page() {
     });
   }, [activeTab, today]);
 
+  // 탭을 바꾸면 이전 화면의 스크롤 위치가 그대로 남아, 식물 정보 아래쪽에서 '추가'를 누르면
+  // 기록 탭도 아래쪽(모아보기)부터 열렸다. 바꿀 때마다 맨 위로, 기록 남기기로 왔으면 입력칸으로.
+  useEffect(() => {
+    const target = pendingScroll.current;
+    pendingScroll.current = "top";
+    const form = recordFormRef.current;
+    if (target === "record-form" && form) {
+      const panel = (form.closest(".panel") as HTMLElement | null) ?? form;
+      const bar = document.querySelector(".topbar") as HTMLElement | null;
+      const stuck = bar && getComputedStyle(bar).position !== "static" ? bar.getBoundingClientRect().height : 0;
+      window.scrollTo({ top: Math.max(0, panel.getBoundingClientRect().top + window.scrollY - stuck - 12) });
+    } else {
+      window.scrollTo({ top: 0 });
+      // 메뉴로 기록 탭에 들어오면 모아보기는 전체부터. 식물 정보에서 넘어온 경우만 그 식물로 둔다.
+      if (activeTab === "photos") setRecordFilter("");
+    }
+  }, [activeTab]);
+
+  // 모아보기에서 식물을 고르면 그 식물 기록만 따로 받는다. 전체 목록은 최신 120건에서 잘린다.
+  useEffect(() => {
+    if (activeTab !== "photos" || !recordFilter) return;
+    const key = recordFilter;
+    setFilteredKey(key);
+    setFilteredRecords([]);
+    run(`records:${key}`, async () => {
+      const data = await fetchJson<{ photos: PlantPhoto[] }>(`/api/plant-photos?plant_id=${encodeURIComponent(key)}`);
+      setFilteredKey((current) => {
+        if (current === key) setFilteredRecords(data.photos);
+        return current;
+      });
+    });
+  }, [activeTab, recordFilter]);
+
+  // "저장했습니다"는 잠깐만 띄운다.
+  useEffect(() => {
+    if (!recordSavedAt) return;
+    const timer = window.setTimeout(() => setRecordSavedAt(0), 3500);
+    return () => window.clearTimeout(timer);
+  }, [recordSavedAt]);
+
   useEffect(() => {
     const timer = window.setInterval(() => setNowMs(Date.now()), 60000);
     return () => window.clearInterval(timer);
@@ -708,7 +838,7 @@ export default function Page() {
   }, [today]);
 
   // 겹쳐 뜨는 창(설정 모달, 사진 크게보기)은 Esc로 닫고, 뒤 페이지가 같이 스크롤되지 않게 막는다.
-  const overlayOpen = Boolean(settingsPlantId) || Boolean(lightbox);
+  const overlayOpen = Boolean(settingsPlantId) || Boolean(recordView);
 
   useEffect(() => {
     if (!overlayOpen) return;
@@ -716,7 +846,7 @@ export default function Page() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       // 사진을 설정 모달 위에서 열 수도 있으므로 위에 있는 것부터 닫는다.
-      setLightbox((prev) => {
+      setRecordView((prev) => {
         if (prev) return null;
         setSettingsPlantId(null);
         return prev;
@@ -858,7 +988,7 @@ export default function Page() {
       // 사진은 DB에서 함께 지워지므로 화면에서도 같이 치운다.
       // 남겨두면 열 때마다 404가 나는 유령 카드가 된다.
       setPhotos((prev) => prev.filter((item) => item.plant_id !== plant.id));
-      setLightbox((prev) => (prev?.photo.plant_id === plant.id ? null : prev));
+      setRecordView((prev) => (prev?.photo.plant_id === plant.id ? null : prev));
     });
   }
 
@@ -934,9 +1064,14 @@ export default function Page() {
     });
   }
 
-  /** 분석 화면의 기록 카드.  /** 분석 화면의 기록 카드. 이 식물을 골라둔 채 기록 탭으로 넘어간다. */
+  /**
+   * 식물 정보의 '추가'. 이 식물을 골라 둔 채 기록 탭의 입력칸으로 바로 간다.
+   * 모아보기도 이 식물 것만 보이게 해, 방금 남긴 기록이 바로 아래에 보인다.
+   */
   function openRecordFor(plantId: string) {
     setPhotoDraft((prev) => ({ ...prev, plantId }));
+    setRecordFilter(plantId);
+    pendingScroll.current = "record-form";
     setActiveTab("photos");
   }
 
@@ -1012,15 +1147,153 @@ export default function Page() {
     });
   }
 
-  async function deleteEntry(entry: PlantPhoto) {
-    const ok = window.confirm(`${entry.captured_at} 기록을 삭제할까요?`);
+  /** 기록 하나가 생기거나 바뀌었을 때, 그 기록이 보이는 목록(전체·식물 정보·모아보기 필터)을 함께 맞춘다. */
+  function upsertRecord(photo: PlantPhoto) {
+    setPhotos((prev) => sortEntries([photo, ...prev.filter((item) => item.id !== photo.id)]));
+    setEntriesPlantId((current) => {
+      setEntries((prev) => {
+        const rest = prev.filter((item) => item.id !== photo.id);
+        return photo.plant_id && photo.plant_id === current ? sortEntries([photo, ...rest]) : rest;
+      });
+      return current;
+    });
+    setFilteredKey((current) => {
+      setFilteredRecords((prev) => {
+        const rest = prev.filter((item) => item.id !== photo.id);
+        return current !== null && recordKeyOf(photo.plant_id) === current ? sortEntries([photo, ...rest]) : rest;
+      });
+      return current;
+    });
+  }
+
+  function removeRecord(id: string) {
+    setPhotos((prev) => prev.filter((item) => item.id !== id));
+    setEntries((prev) => prev.filter((item) => item.id !== id));
+    setFilteredRecords((prev) => prev.filter((item) => item.id !== id));
+    setRecordView((prev) => (prev?.photo.id === id ? null : prev));
+  }
+
+  function bumpRecordCount(key: string, delta: number) {
+    setRecordCounts((prev) => ({ ...prev, [key]: Math.max(0, (prev[key] ?? 0) + delta) }));
+  }
+
+  async function deleteRecord(photo: PlantPhoto) {
+    const who = photo.plant_name ? `${photo.plant_name}의 ` : "";
+    const ok = window.confirm(`${who}${photo.captured_at} 기록을 삭제할까요?`);
     if (!ok) return;
 
-    await run(`entry:${entry.id}`, async () => {
-      await fetchJson<{ deleted: { id: string } }>(`/api/plant-photos/${entry.id}`, { method: "DELETE" });
-      setEntries((prev) => prev.filter((item) => item.id !== entry.id));
-      setPhotos((prev) => prev.filter((item) => item.id !== entry.id));
-      setLightbox((prev) => (prev?.photo.id === entry.id ? null : prev));
+    await run(`photo:${photo.id}`, async () => {
+      await fetchJson<{ deleted: { id: string } }>(`/api/plant-photos/${photo.id}`, { method: "DELETE" });
+      removeRecord(photo.id);
+      bumpRecordCount(recordKeyOf(photo.plant_id), -1);
+      if (photo.has_image) setRecordStats((prev) => (prev ? { ...prev, photos: Math.max(0, prev.photos - 1) } : prev));
+    });
+  }
+
+  /** 기록을 연다. 사진이 있으면 원본을 따로 받아 크게 보여 주고, 아래에서 바로 고칠 수 있다. */
+  function openRecord(photo: PlantPhoto) {
+    setRecordView({
+      photo,
+      imageUrl: null,
+      status: photo.has_image ? "loading" : "none",
+      draft: { plantId: photo.plant_id ?? "", note: photo.note, capturedAt: photo.captured_at },
+      pending: null,
+      removeImage: false,
+      error: "",
+    });
+    if (photo.has_image) loadRecordImage(photo);
+  }
+
+  async function loadRecordImage(photo: PlantPhoto) {
+    setRecordView((prev) => (prev?.photo.id === photo.id ? { ...prev, status: "loading" } : prev));
+    await run(`photo-open:${photo.id}`, async () => {
+      try {
+        const data = await fetchJson<{ image_url: string }>(`/api/plant-photos/${photo.id}`);
+        // 여는 도중 다른 기록으로 넘어갔으면 늦게 온 응답으로 덮어쓰지 않는다.
+        setRecordView((prev) =>
+          prev?.photo.id === photo.id ? { ...prev, imageUrl: data.image_url, status: "ready" } : prev,
+        );
+      } catch (error) {
+        // 실패를 알리지 않으면 "불러오는 중"에서 영원히 멈춘 것처럼 보인다.
+        setRecordView((prev) => (prev?.photo.id === photo.id ? { ...prev, status: "error" } : prev));
+        // 이미 지워진 기록이면 목록에서도 치운다.
+        if (error instanceof Error && /찾을 수 없습니다/.test(error.message)) removeRecord(photo.id);
+      }
+    });
+  }
+
+  async function onRecordFileChange(file: File | null) {
+    if (!file) return;
+    await run("record-prepare", async () => {
+      try {
+        const prepared = await preparePhoto(file);
+        setRecordView((prev) =>
+          prev ? { ...prev, pending: { ...prepared, name: file.name }, removeImage: false, error: "" } : prev,
+        );
+      } finally {
+        if (recordFileRef.current) recordFileRef.current.value = "";
+      }
+    });
+  }
+
+  function recordDirty(view: NonNullable<typeof recordView>) {
+    const { photo, draft } = view;
+    return (
+      view.pending !== null ||
+      view.removeImage ||
+      draft.note.trim() !== photo.note ||
+      draft.capturedAt !== photo.captured_at ||
+      (draft.plantId || null) !== photo.plant_id
+    );
+  }
+
+  async function saveRecord(event: FormEvent) {
+    event.preventDefault();
+    const view = recordView;
+    if (!view || !recordDirty(view)) return;
+    const { photo, draft } = view;
+    const note = draft.note.trim();
+    const willHaveImage = view.pending ? true : view.removeImage ? false : photo.has_image;
+    const fail = (message: string) =>
+      setRecordView((prev) => (prev?.photo.id === photo.id ? { ...prev, error: message } : prev));
+
+    if (!willHaveImage && !note) return fail("메모를 쓰거나 사진을 넣어주세요.");
+    if (!draft.capturedAt) return fail("날짜를 골라주세요.");
+    if (draft.capturedAt > today) return fail("날짜는 오늘 이후로 지정할 수 없습니다.");
+
+    // 바뀐 칸만 보낸다.
+    const body: Record<string, unknown> = {};
+    if ((draft.plantId || null) !== photo.plant_id) body.plant_id = draft.plantId || null;
+    if (note !== photo.note) body.note = note;
+    if (draft.capturedAt !== photo.captured_at) body.captured_at = draft.capturedAt;
+    if (view.pending) {
+      body.image_url = view.pending.image;
+      body.thumb_url = view.pending.thumb;
+    } else if (view.removeImage) {
+      body.remove_image = true;
+    }
+
+    await run(`record-save:${photo.id}`, async () => {
+      try {
+        const data = await fetchJson<{ photo: PlantPhoto }>(`/api/plant-photos/${photo.id}`, {
+          method: "PATCH",
+          body: JSON.stringify(body),
+        });
+        upsertRecord(data.photo);
+        if (recordKeyOf(data.photo.plant_id) !== recordKeyOf(photo.plant_id)) {
+          bumpRecordCount(recordKeyOf(photo.plant_id), -1);
+          bumpRecordCount(recordKeyOf(data.photo.plant_id), 1);
+        }
+        if (data.photo.has_image !== photo.has_image) {
+          setRecordStats((prev) =>
+            prev ? { ...prev, photos: Math.max(0, prev.photos + (data.photo.has_image ? 1 : -1)) } : prev,
+          );
+        }
+        setRecordView(null);
+      } catch (error) {
+        fail(error instanceof Error ? error.message : "저장하지 못했습니다.");
+        throw error;
+      }
     });
   }
 
@@ -1034,6 +1307,16 @@ export default function Page() {
       try {
         const prepared = await preparePhoto(file);
         setPendingPhoto({ ...prepared, name: file.name });
+
+        // 지난 사진이면 날짜를 찍은 날로 맞춘다. 사용자가 날짜를 직접 고쳤으면 건드리지 않는다.
+        const shot = await readPhotoDate(file).catch(() => null);
+        const current = photoDraft.capturedAt;
+        const untouched = !current || current === autoCapturedAt.current || current === exifDate.current;
+        if (shot && shot <= today && untouched) {
+          exifDate.current = shot;
+          setPhotoDraft((prev) => ({ ...prev, capturedAt: shot }));
+          setPhotoDateHint(shot === today ? "" : `사진 찍은 날(${shot})로 맞췄습니다`);
+        }
       } finally {
         // 실패했을 때 input에 같은 파일이 남아 있으면 다시 골라도 change가 안 뜬다.
         if (photoInputRef.current) photoInputRef.current.value = "";
@@ -1068,26 +1351,22 @@ export default function Page() {
         }),
       });
 
-      // 서버 목록과 같은 기준으로 정렬한다. 무조건 앞에 붙이면 과거 날짜 사진이
-      // 가장 최신인 것처럼 보인다.
-      setPhotos((prev) =>
-        [data.photo, ...prev].sort(
-          (a, b) =>
-            b.captured_at.localeCompare(a.captured_at) ||
-            String(b.created_at).localeCompare(String(a.created_at)),
-        ),
-      );
-      // 지금 분석 화면에서 보고 있는 식물의 기록이면 거기에도 바로 반영한다.
-      // 저장하는 사이에 분석 화면의 식물이 바뀔 수 있으므로, 폼을 그릴 때 값이 아니라
-      // 응답이 온 지금 값과 맞춰본다.
-      setEntriesPlantId((current) => {
-        if (data.photo.plant_id && data.photo.plant_id === current) {
-          setEntries((prev) =>
-            prev.some((item) => item.id === data.photo.id) ? prev : sortEntries([data.photo, ...prev]),
-          );
-        }
-        return current;
-      });
+      // 같은 기준으로 정렬해 넣는다. 무조건 앞에 붙이면 과거 날짜 사진이 가장 최신처럼 보인다.
+      upsertRecord(data.photo);
+      bumpRecordCount(recordKeyOf(data.photo.plant_id), 1);
+      if (data.photo.has_image) setRecordStats((prev) => (prev ? { ...prev, photos: prev.photos + 1 } : prev));
+      // 모아보기가 다른 식물을 보고 있으면 방금 남긴 기록이 안 보인다. 그 식물로 맞춘다.
+      if (recordFilter && recordFilter !== recordKeyOf(data.photo.plant_id)) {
+        setRecordFilter(recordKeyOf(data.photo.plant_id));
+      }
+      setRecordSavedAt(Date.now());
+      // 다음 기록은 다시 오늘 날짜부터.
+      if (exifDate.current && photoDraft.capturedAt === exifDate.current) {
+        autoCapturedAt.current = today;
+        setPhotoDraft((prev) => ({ ...prev, capturedAt: today }));
+      }
+      exifDate.current = "";
+      setPhotoDateHint("");
 
       setPendingPhoto(null);
       setPhotoDraft((prev) => ({ ...prev, note: "" }));
@@ -1097,41 +1376,7 @@ export default function Page() {
     });
   }
 
-  async function deletePhoto(photo: PlantPhoto) {
-    const ok = window.confirm(`${photo.plant_name}의 ${photo.captured_at} 사진을 삭제할까요?`);
-    if (!ok) return;
 
-    await run(`photo:${photo.id}`, async () => {
-      await fetchJson<{ deleted: { id: string } }>(`/api/plant-photos/${photo.id}`, { method: "DELETE" });
-      setPhotos((prev) => prev.filter((item) => item.id !== photo.id));
-      // 분석 탭의 그 식물 기록에서도 빼야 한다. 안 빼면 지운 사진이 목록에 남고,
-      // 도판에까지 걸려 열면 404가 난다.
-      setEntries((prev) => prev.filter((item) => item.id !== photo.id));
-      setLightbox((prev) => (prev?.photo.id === photo.id ? null : prev));
-    });
-  }
-
-  async function openPhoto(photo: PlantPhoto) {
-    setLightbox({ photo, imageUrl: null, status: "loading" });
-    await run(`photo-open:${photo.id}`, async () => {
-      try {
-        const data = await fetchJson<{ image_url: string }>(`/api/plant-photos/${photo.id}`);
-        // 여는 도중 다른 사진으로 넘어갔으면 늦게 온 응답으로 덮어쓰지 않는다.
-        setLightbox((prev) =>
-          prev?.photo.id === photo.id ? { ...prev, imageUrl: data.image_url, status: "ready" } : prev,
-        );
-      } catch (error) {
-        // 실패를 알리지 않으면 "불러오는 중"에서 영원히 멈춘 것처럼 보인다.
-        setLightbox((prev) => (prev?.photo.id === photo.id ? { ...prev, status: "error" } : prev));
-        // 이미 지워진 사진이면 목록에서도 치운다.
-        if (error instanceof Error && /찾을 수 없습니다/.test(error.message)) {
-          setPhotos((prev) => prev.filter((item) => item.id !== photo.id));
-          setEntries((prev) => prev.filter((item) => item.id !== photo.id));
-        }
-        throw error;
-      }
-    });
-  }
 
   async function deleteDayMemo(memo: DayMemo) {
     const ok = window.confirm("이 메모를 삭제할까요?");
@@ -1347,6 +1592,22 @@ export default function Page() {
    * 새 식물 이름 아래 그려지던 것을 막는다. 효과는 그리고 난 뒤에 돈다.
    */
   const ownedEntries = selectedPlant && entriesPlantId === selectedPlant.id ? entries : [];
+
+  // 기록 탭 모아보기: 고른 식물이 있으면 그 식물만 따로 받은 목록, 없으면 최신 전체.
+  const shownRecords = recordFilter ? (filteredKey === recordFilter ? filteredRecords : []) : photos;
+  const recordTotal = Object.values(recordCounts).reduce((sum, n) => sum + n, 0) || photos.length;
+  const recordFilterOptions = useMemo(() => {
+    const nameOf = new Map(model.map((plant) => [plant.id, plant.name]));
+    const options = Object.entries(recordCounts)
+      .filter(([key, n]) => n > 0 && (key === "none" || nameOf.has(key)))
+      .map(([key, n]) => ({ key, n, label: key === "none" ? "식물 없음" : (nameOf.get(key) as string) }));
+    // 기록이 아직 없는 식물을 골라 들어온 경우에도 칸이 보이게 한다.
+    if (recordFilter && !options.some((option) => option.key === recordFilter)) {
+      const label = recordFilter === "none" ? "식물 없음" : nameOf.get(recordFilter);
+      if (label) options.push({ key: recordFilter, n: 0, label });
+    }
+    return options.sort((a, b) => b.n - a.n || a.label.localeCompare(b.label, "ko"));
+  }, [recordCounts, model, recordFilter]);
   const maxGap = Math.max(1, ...analysisGaps.map((item) => item.gap));
 
   return (
@@ -1805,70 +2066,53 @@ export default function Page() {
 
                     {isBusy(`entries:${selectedPlant.id}`) ? (
                       <div className="empty compact-empty">기록을 불러오는 중입니다.</div>
-                    ) : ownedEntries.length ? (
-                      <div className="photo-grid">
-                        <button
-                          type="button"
-                          className="record-add"
-                          onClick={() => openRecordFor(selectedPlant.id)}
-                          title="기록 탭에서 이 식물의 기록을 남깁니다"
-                        >
-                          <Plus size={18} />
-                          <span>추가</span>
-                        </button>
-                        {ownedEntries.map((entry, index) => (
-                          <figure className="photo-card" key={entry.id} style={{ "--i": index } as React.CSSProperties}>
-                            {entry.thumb_url && entry.has_image ? (
-                              <button
-                                className="photo-thumb"
-                                title="크게 보기"
-                                onClick={() => openPhoto(entry)}
-                              >
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
-                                  src={entry.thumb_url}
-                                  alt={`${selectedPlant.name} ${entry.captured_at}`}
-                                  loading="lazy"
-                                  onError={(event) => {
-                                    // 깨진 이미지는 alt 글자가 칸을 넘어 줄을 흐트러뜨린다.
-                                    event.currentTarget.style.display = "none";
-                                  }}
-                                />
-                              </button>
-                            ) : (
-                              <div className="photo-thumb note-only">
-                                <StickyNote size={20} />
-                              </div>
-                            )}
-                            <figcaption>
-                              <div className="photo-caption-main">
-                                <strong>{entry.captured_at}</strong>
-                                <span className="meta">Fig.</span>
-                              </div>
-                              {entry.note && <p>{entry.note}</p>}
-                            </figcaption>
-                            <button
-                              className="icon-btn danger sm photo-delete"
-                              title="기록 삭제"
-                              disabled={isBusy(`entry:${entry.id}`)}
-                              onClick={() => deleteEntry(entry)}
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          </figure>
-                        ))}
-                      </div>
                     ) : (
                       <div className="photo-grid">
                         <button
                           type="button"
                           className="record-add"
                           onClick={() => openRecordFor(selectedPlant.id)}
-                          title="기록 탭에서 이 식물의 기록을 남깁니다"
+                          title="이 식물의 기록을 남깁니다"
                         >
                           <Plus size={18} />
                           <span>추가</span>
                         </button>
+                        {ownedEntries.map((entry, index) => (
+                          <figure className="photo-card record-card" key={entry.id} style={{ "--i": index } as React.CSSProperties}>
+                            <button
+                              type="button"
+                              className="record-open"
+                              title="열어서 보기 · 고치기"
+                              onClick={() => openRecord(entry)}
+                            >
+                              {entry.thumb_url && entry.has_image ? (
+                                <span className="photo-thumb">
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img
+                                    src={entry.thumb_url}
+                                    alt={`${selectedPlant.name} ${entry.captured_at}`}
+                                    loading="lazy"
+                                    onError={(event) => {
+                                      // 깨진 이미지는 alt 글자가 칸을 넘어 줄을 흐트러뜨린다.
+                                      event.currentTarget.style.display = "none";
+                                    }}
+                                  />
+                                </span>
+                              ) : (
+                                <span className="photo-thumb note-only">
+                                  <StickyNote size={20} />
+                                </span>
+                              )}
+                              <span className="record-caption">
+                                <span className="photo-caption-main">
+                                  <strong>{entry.captured_at}</strong>
+                                  <span className="meta">Fig.</span>
+                                </span>
+                                {entry.note && <span className="record-note">{entry.note}</span>}
+                              </span>
+                            </button>
+                          </figure>
+                        ))}
                       </div>
                     )}
                   </div>
@@ -1996,28 +2240,30 @@ export default function Page() {
                       <div className="day-records">
                         {selectedDatePhotos.map((photo) => (
                           <div className="day-record" key={photo.id}>
-                            {photo.has_image && photo.thumb_url ? (
-                              <button
-                                type="button"
-                                className="day-record-thumb"
-                                title="크게 보기"
-                                onClick={() => openPhoto(photo)}
-                              >
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img src={photo.thumb_url} alt={photo.plant_name ?? "기록 사진"} loading="lazy" />
-                              </button>
-                            ) : (
-                              <span className="day-record-thumb note-only"><StickyNote size={14} /></span>
-                            )}
-                            <div className="day-record-body">
-                              <strong>{photo.plant_name ?? "전체"}</strong>
-                              {photo.note && <p>{photo.note}</p>}
-                            </div>
+                            <button
+                              type="button"
+                              className="day-record-open"
+                              title="열어서 보기 · 고치기"
+                              onClick={() => openRecord(photo)}
+                            >
+                              {photo.has_image && photo.thumb_url ? (
+                                <span className="day-record-thumb">
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img src={photo.thumb_url} alt={photo.plant_name ?? "기록 사진"} loading="lazy" />
+                                </span>
+                              ) : (
+                                <span className="day-record-thumb note-only"><StickyNote size={14} /></span>
+                              )}
+                              <span className="day-record-body">
+                                <strong>{photo.plant_name ?? "전체"}</strong>
+                                {photo.note && <span className="day-record-note">{photo.note}</span>}
+                              </span>
+                            </button>
                             <button
                               className="icon-btn danger sm"
                               title="기록 삭제"
                               disabled={isBusy(`photo:${photo.id}`)}
-                              onClick={() => deletePhoto(photo)}
+                              onClick={() => deleteRecord(photo)}
                             >
                               <Trash2 size={14} />
                             </button>
@@ -2119,7 +2365,7 @@ export default function Page() {
                   <span className="meta">사진이든 메모든</span>
                 </div>
 
-                <form className="form-grid photo-form" onSubmit={submitPhoto}>
+                <form ref={recordFormRef} className="form-grid photo-form" onSubmit={submitPhoto}>
                   <label className="field">
                     <span className="meta">식물 (선택)</span>
                     <select
@@ -2141,33 +2387,39 @@ export default function Page() {
                       type="date"
                       max={today}
                       value={photoDraft.capturedAt || today}
-                      onChange={(event) =>
-                        setPhotoDraft({ ...photoDraft, capturedAt: event.target.value || today })
-                      }
+                      onChange={(event) => {
+                        setPhotoDraft({ ...photoDraft, capturedAt: event.target.value || today });
+                        exifDate.current = "";
+                        setPhotoDateHint("");
+                      }}
                     />
+                    {photoDateHint && <span className="hint date-hint">{photoDateHint}</span>}
                   </label>
 
-                  <label className="field photo-picker">
+                  <div className="field photo-picker">
                     <span className="meta">사진 (선택)</span>
-                    <input
-                      ref={photoInputRef}
-                      className="input file-input"
-                      type="file"
-                      accept="image/*"
-                      disabled={isBusy("photo-prepare") || isBusy("photo-upload")}
-                      onChange={(event) => onPhotoFileChange(event.target.files?.[0] ?? null)}
-                    />
+                    <label className={`photo-pick ${isBusy("photo-prepare") || isBusy("photo-upload") ? "busy" : ""}`}>
+                      <input
+                        ref={photoInputRef}
+                        className="photo-pick-input"
+                        type="file"
+                        accept="image/*"
+                        disabled={isBusy("photo-prepare") || isBusy("photo-upload")}
+                        onChange={(event) => onPhotoFileChange(event.target.files?.[0] ?? null)}
+                      />
+                      <Camera size={17} />
+                      <span>{pendingPhoto ? "다른 사진 고르기" : "사진 찍기 · 고르기"}</span>
+                    </label>
                     <span className="hint">
-                      폰에서 열면 카메라로 바로 찍을 수 있어요. 올리기 전에 자동으로 크기를 줄입니다.
-                      사진 없이 메모만 남겨도 됩니다.
+                      올릴 때 자동으로 줄여 한 장 200KB 안팎으로 저장합니다. 사진 없이 메모만 남겨도 됩니다.
                     </span>
-                  </label>
+                  </div>
 
                   <label className="field photo-picker">
                     <span className="meta">메모</span>
                     <textarea
                       className="input textarea"
-                      placeholder="오늘 화분 정리함 / 새 화분 들임 / 물 준 뒤 잎이 폈다 …"
+                      placeholder="새 잎이 났다 / 분갈이함 / 꽃대가 올라왔다 …"
                       maxLength={500}
                       value={photoDraft.note}
                       onChange={(event) => setPhotoDraft({ ...photoDraft, note: event.target.value })}
@@ -2189,6 +2441,13 @@ export default function Page() {
                           onClick={() => {
                             setPendingPhoto(null);
                             if (photoInputRef.current) photoInputRef.current.value = "";
+                            // 사진에서 읽어 넣은 날짜였다면 같이 되돌린다.
+                            if (exifDate.current && photoDraft.capturedAt === exifDate.current) {
+                              autoCapturedAt.current = today;
+                              setPhotoDraft((prev) => ({ ...prev, capturedAt: today }));
+                            }
+                            exifDate.current = "";
+                            setPhotoDateHint("");
                           }}
                         >
                           <X size={14} /> 사진 빼기
@@ -2197,83 +2456,106 @@ export default function Page() {
                     </div>
                   )}
 
-                  <button
-                    className="btn primary"
-                    type="submit"
-                    disabled={isBusy("photo-upload") || isBusy("photo-prepare")}
-                  >
-                    <Plus size={16} /> {isBusy("photo-upload") ? "저장 중…" : "기록 저장"}
-                  </button>
+                  <div className="record-submit">
+                    <button
+                      className="btn primary"
+                      type="submit"
+                      disabled={isBusy("photo-upload") || isBusy("photo-prepare")}
+                    >
+                      <Plus size={16} /> {isBusy("photo-upload") ? "저장 중…" : "기록 저장"}
+                    </button>
+                    {recordSavedAt > 0 && (
+                      <span className="record-saved" role="status">
+                        <Check size={15} /> 저장했습니다
+                      </span>
+                    )}
+                  </div>
                 </form>
               </div>
 
               <div className="panel">
                 <div className="panel-title">
                   <h2><StickyNote size={18} /> 모아보기</h2>
-                  <span className="meta">{photos.length}건</span>
+                  <span className="meta">
+                    {recordStats
+                      ? `사진 ${recordStats.photos.toLocaleString()} / ${recordStats.limit.toLocaleString()}장${
+                          recordStats.bytes ? ` · ${formatBytes(recordStats.bytes)}` : ""
+                        }`
+                      : `${photos.length}건`}
+                  </span>
                 </div>
 
-                {isBusy("photos") ? (
+                <div className="record-filter" role="group" aria-label="식물별로 보기">
+                  <button
+                    type="button"
+                    className={`rf-chip ${recordFilter === "" ? "on" : ""}`}
+                    onClick={() => setRecordFilter("")}
+                  >
+                    전체 <b>{recordTotal}</b>
+                  </button>
+                  {recordFilterOptions.map((option) => (
+                    <button
+                      type="button"
+                      key={option.key}
+                      className={`rf-chip ${recordFilter === option.key ? "on" : ""}`}
+                      onClick={() => setRecordFilter(option.key)}
+                    >
+                      {option.label} <b>{option.n}</b>
+                    </button>
+                  ))}
+                </div>
+
+                {isBusy("photos") || (recordFilter && isBusy(`records:${recordFilter}`)) ? (
                   <div className="empty">기록을 불러오는 중입니다.</div>
-                ) : photosError ? (
+                ) : photosError && !recordFilter ? (
                   <div className="empty">
                     <p>{photosError}</p>
                     <button className="btn sm" onClick={() => reloadPhotos()}>
                       <RefreshCw size={14} /> 다시 시도
                     </button>
                   </div>
-                ) : photos.length ? (
+                ) : shownRecords.length ? (
                   <div className="photo-grid">
-                    {photos.map((photo, index) => (
-                      <figure className="photo-card" key={photo.id} style={{ "--i": index } as React.CSSProperties}>
-                        {photo.has_image && photo.thumb_url ? (
-                          <button className="photo-thumb" onClick={() => openPhoto(photo)} title="크게 보기">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={photo.thumb_url}
-                              alt={`${photo.plant_name ?? "전체"} ${photo.captured_at}`}
-                              loading="lazy"
-                              onError={(event) => {
-                                event.currentTarget.style.display = "none";
-                              }}
-                            />
-                          </button>
-                        ) : (
-                          <div className="photo-thumb note-only">
-                            <StickyNote size={20} />
-                          </div>
-                        )}
-                        <figcaption>
-                          <div className="photo-caption-main">
-                            {photo.plant_id ? (
-                              <button
-                                type="button"
-                                className="plant-open"
-                                title={`${photo.plant_name} 기록 보기`}
-                                onClick={() => openPlantAnalysis(photo.plant_id as string)}
-                              >
-                                {photo.plant_name}
-                              </button>
-                            ) : (
-                              <strong className="muted-name">전체</strong>
-                            )}
-                            <span className="meta">{photo.captured_at}</span>
-                          </div>
-                          {photo.note && <p>{photo.note}</p>}
-                        </figcaption>
+                    {shownRecords.map((photo, index) => (
+                      <figure className="photo-card record-card" key={photo.id} style={{ "--i": index } as React.CSSProperties}>
                         <button
-                          className="icon-btn danger sm photo-delete"
-                          title="기록 삭제"
-                          disabled={isBusy(`photo:${photo.id}`)}
-                          onClick={() => deletePhoto(photo)}
+                          type="button"
+                          className="record-open"
+                          title="열어서 보기 · 고치기"
+                          onClick={() => openRecord(photo)}
                         >
-                          <Trash2 size={14} />
+                          {photo.has_image && photo.thumb_url ? (
+                            <span className="photo-thumb">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={photo.thumb_url}
+                                alt={`${photo.plant_name ?? "전체"} ${photo.captured_at}`}
+                                loading="lazy"
+                                onError={(event) => {
+                                  event.currentTarget.style.display = "none";
+                                }}
+                              />
+                            </span>
+                          ) : (
+                            <span className="photo-thumb note-only">
+                              <StickyNote size={20} />
+                            </span>
+                          )}
+                          <span className="record-caption">
+                            <span className="photo-caption-main">
+                              <strong className={photo.plant_id ? "" : "muted-name"}>{photo.plant_name ?? "전체"}</strong>
+                              <span className="meta">{photo.captured_at}</span>
+                            </span>
+                            {photo.note && <span className="record-note">{photo.note}</span>}
+                          </span>
                         </button>
                       </figure>
                     ))}
                   </div>
                 ) : (
-                  <div className="empty">아직 기록이 없습니다. 위에서 첫 기록을 남겨보세요.</div>
+                  <div className="empty">
+                    {recordFilter ? "이 식물의 기록이 아직 없습니다. 위에서 남겨보세요." : "아직 기록이 없습니다. 위에서 첫 기록을 남겨보세요."}
+                  </div>
                 )}
               </div>
             </section>
@@ -2529,35 +2811,155 @@ export default function Page() {
         </div>
       </div>
 
-      {lightbox && (
-        <div className="modal-backdrop photo-backdrop" onClick={() => setLightbox(null)}>
-          <div className="photo-viewer" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
-            <div className="photo-viewer-head">
-              <div>
-                <strong>{lightbox.photo.plant_name}</strong>
-                <span className="meta">{lightbox.photo.captured_at}</span>
+      {recordView && (() => {
+        const view = recordView;
+        const showsImage = view.pending ? true : view.removeImage ? false : view.photo.has_image;
+        const saving = isBusy(`record-save:${view.photo.id}`);
+        const setDraft = (patch: Partial<typeof view.draft>) =>
+          setRecordView((prev) => (prev ? { ...prev, draft: { ...prev.draft, ...patch }, error: "" } : prev));
+        return (
+          <div className="modal-backdrop photo-backdrop" onClick={() => setRecordView(null)}>
+            <div
+              className="photo-viewer record-viewer"
+              role="dialog"
+              aria-modal="true"
+              aria-label="기록 보기 · 고치기"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="photo-viewer-head">
+                <div>
+                  <strong>{view.photo.plant_name ?? "전체"}</strong>
+                  <span className="meta">{view.photo.captured_at}</span>
+                </div>
+                <button className="icon-btn" title="닫기" onClick={() => setRecordView(null)}><X size={16} /></button>
               </div>
-              <button className="icon-btn" title="닫기" onClick={() => setLightbox(null)}><X size={16} /></button>
-            </div>
-            <div className="photo-viewer-body">
-              {lightbox.status === "ready" && lightbox.imageUrl ? (
-                /* eslint-disable-next-line @next/next/no-img-element */
-                <img src={lightbox.imageUrl} alt={`${lightbox.photo.plant_name} ${lightbox.photo.captured_at}`} />
-              ) : lightbox.status === "error" ? (
-                <div className="empty compact-empty">
-                  <p>원본을 불러오지 못했습니다.</p>
-                  <button className="btn sm" onClick={() => openPhoto(lightbox.photo)}>
-                    <RefreshCw size={14} /> 다시 시도
+
+              <div className="photo-viewer-body">
+                {view.pending ? (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img src={view.pending.image} alt="바꿀 사진" />
+                ) : !showsImage ? (
+                  <div className="record-noimg">
+                    <StickyNote size={22} />
+                    <span>{view.removeImage ? "저장하면 사진이 빠집니다" : "사진 없는 기록"}</span>
+                  </div>
+                ) : view.status === "ready" && view.imageUrl ? (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img src={view.imageUrl} alt={`${view.photo.plant_name ?? "전체"} ${view.photo.captured_at}`} />
+                ) : view.status === "error" ? (
+                  <div className="empty compact-empty">
+                    <p>원본을 불러오지 못했습니다.</p>
+                    <button className="btn sm" onClick={() => loadRecordImage(view.photo)}>
+                      <RefreshCw size={14} /> 다시 시도
+                    </button>
+                  </div>
+                ) : (
+                  <div className="empty compact-empty">원본을 불러오는 중입니다.</div>
+                )}
+              </div>
+
+              <div className="record-photo-actions">
+                <label className={`btn sm ${isBusy("record-prepare") ? "busy" : ""}`}>
+                  <input
+                    ref={recordFileRef}
+                    className="photo-pick-input"
+                    type="file"
+                    accept="image/*"
+                    disabled={isBusy("record-prepare") || saving}
+                    onChange={(event) => onRecordFileChange(event.target.files?.[0] ?? null)}
+                  />
+                  <Camera size={14} /> {isBusy("record-prepare") ? "줄이는 중…" : showsImage ? "사진 바꾸기" : "사진 넣기"}
+                </label>
+                {showsImage && (
+                  <button
+                    type="button"
+                    className="btn sm"
+                    onClick={() =>
+                      setRecordView((prev) =>
+                        prev
+                          ? { ...prev, pending: null, removeImage: prev.photo.has_image, error: "" }
+                          : prev,
+                      )
+                    }
+                  >
+                    <X size={14} /> 사진 빼기
+                  </button>
+                )}
+                {(view.pending || view.removeImage) && (
+                  <button
+                    type="button"
+                    className="btn sm"
+                    onClick={() => setRecordView((prev) => (prev ? { ...prev, pending: null, removeImage: false } : prev))}
+                  >
+                    되돌리기
+                  </button>
+                )}
+              </div>
+
+              <form className="record-edit" onSubmit={saveRecord}>
+                <label className="field">
+                  <span className="meta">식물</span>
+                  <select className="select" value={view.draft.plantId} onChange={(event) => setDraft({ plantId: event.target.value })}>
+                    <option value="">특정 식물 아님</option>
+                    {model.map((plant) => (
+                      <option key={plant.id} value={plant.id}>{plant.name}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
+                  <span className="meta">날짜</span>
+                  <input
+                    className="input"
+                    type="date"
+                    max={today}
+                    value={view.draft.capturedAt}
+                    onChange={(event) => setDraft({ capturedAt: event.target.value })}
+                  />
+                </label>
+                <label className="field record-edit-note">
+                  <span className="meta">메모</span>
+                  <textarea
+                    className="input textarea"
+                    maxLength={500}
+                    placeholder="메모 없음"
+                    value={view.draft.note}
+                    onChange={(event) => setDraft({ note: event.target.value })}
+                  />
+                </label>
+
+                {view.error && <p className="record-error" role="alert">{view.error}</p>}
+
+                <div className="record-edit-actions">
+                  <button
+                    type="button"
+                    className="btn danger"
+                    disabled={isBusy(`photo:${view.photo.id}`) || saving}
+                    onClick={() => deleteRecord(view.photo)}
+                  >
+                    <Trash2 size={15} /> 삭제
+                  </button>
+                  {view.photo.plant_id && (
+                    <button
+                      type="button"
+                      className="btn"
+                      onClick={() => {
+                        const plantId = view.photo.plant_id as string;
+                        setRecordView(null);
+                        openPlantAnalysis(plantId);
+                      }}
+                    >
+                      식물 정보
+                    </button>
+                  )}
+                  <button type="submit" className="btn primary" disabled={saving || !recordDirty(view)}>
+                    <Check size={15} /> {saving ? "저장 중…" : "저장"}
                   </button>
                 </div>
-              ) : (
-                <div className="empty compact-empty">원본을 불러오는 중입니다.</div>
-              )}
+              </form>
             </div>
-            {lightbox.photo.note && <p className="photo-viewer-note">{lightbox.photo.note}</p>}
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {settingsPlant && (
         <div className="modal-backdrop" onClick={() => setSettingsPlantId(null)}>

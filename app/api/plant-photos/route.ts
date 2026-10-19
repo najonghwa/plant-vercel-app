@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server";
 import { query, queryOne } from "@/lib/db";
 import type { PlantPhoto } from "@/lib/types";
+import {
+  DATE_RE,
+  MAX_PHOTOS_PER_PLANT,
+  MAX_PHOTOS_TOTAL,
+  PHOTO_RETURNING,
+  checkImage,
+} from "@/lib/photoRules";
 
 /**
  * 기록. 날짜 + 메모 + (선택) 사진 한 장으로 이뤄진다.
@@ -14,11 +21,6 @@ import type { PlantPhoto } from "@/lib/types";
  * 대신 목록에서 원본을 다 내려받으면 느려지므로 작은 썸네일을 따로 저장하고,
  * 목록 응답에는 썸네일만 싣는다. 원본은 /api/plant-photos/[id]에서 개별로 가져간다.
  */
-const MAX_IMAGE_CHARS = 3_000_000; // data URL 기준 약 2.2MB
-const MAX_THUMB_CHARS = 400_000;
-/** 식물 한 종당, 그리고 전체 보관 장수 상한. DB가 사진으로 가득 차는 것을 막는다. */
-const MAX_PHOTOS_PER_PLANT = 200;
-const MAX_PHOTOS_TOTAL = 2000;
 /** 목록은 최신부터 이만큼만 내려준다. */
 const LIST_LIMIT = 120;
 
@@ -63,7 +65,11 @@ export async function GET(request: Request) {
   await ensurePlantPhotosTable();
 
   // 식물 하나의 기록만 볼 때는 전체 목록의 상한에 잘리지 않도록 따로 조회한다.
-  const plantId = new URL(request.url).searchParams.get("plant_id");
+  // plant_id=none 은 "특정 식물 아님" 기록만.
+  const raw = new URL(request.url).searchParams.get("plant_id");
+  const onlyUnassigned = raw === "none";
+  const plantId = raw && !onlyUnassigned ? raw : null;
+  const filtered = Boolean(raw);
 
   // image_url(원본)은 일부러 뺀다. 목록에 다 실으면 응답이 수십 MB가 된다.
   const photos = await query<PlantPhoto>(
@@ -78,13 +84,44 @@ export async function GET(request: Request) {
        ph.created_at
      from plant_photos ph
      left join plants p on p.id = ph.plant_id
-     where $1::uuid is null or ph.plant_id = $1::uuid
+     where ($1::uuid is null or ph.plant_id = $1::uuid)
+       and (not $2::boolean or ph.plant_id is null)
      order by ph.captured_at desc, ph.created_at desc
-     limit $2`,
-    [plantId, plantId ? 500 : LIST_LIMIT],
+     limit $3`,
+    [plantId, onlyUnassigned, filtered ? 500 : LIST_LIMIT],
   );
 
-  return NextResponse.json({ photos });
+  if (filtered) return NextResponse.json({ photos });
+
+  // 전체 목록일 때만 식물별 건수와 사진이 차지하는 용량을 같이 준다.
+  // 건수는 기록 탭의 식물 고르기 칸에, 용량은 "얼마나 더 올릴 수 있나"에 쓴다.
+  // 용량은 표 크기로 잰다. 사진 글자 길이를 다 더하면 원본을 전부 읽어 느려진다.
+  const counts = await query<{ plant_id: string | null; n: number }>(
+    "select plant_id, count(*)::int as n from plant_photos group by plant_id",
+  );
+  let stats: { photos: number; limit: number; bytes: number | null; db_bytes: number | null } = {
+    photos: 0,
+    limit: MAX_PHOTOS_TOTAL,
+    bytes: null,
+    db_bytes: null,
+  };
+  try {
+    const row = await queryOne<{ photos: number; bytes: string; db_bytes: string }>(
+      `select
+         (select count(*) from plant_photos where image_url is not null)::int as photos,
+         pg_total_relation_size('plant_photos')::text as bytes,
+         pg_database_size(current_database())::text as db_bytes`,
+    );
+    if (row) stats = { photos: row.photos, limit: MAX_PHOTOS_TOTAL, bytes: Number(row.bytes), db_bytes: Number(row.db_bytes) };
+  } catch {
+    // 크기 함수를 못 쓰는 DB여도 목록은 보여야 한다.
+    const row = await queryOne<{ photos: number }>(
+      "select count(*)::int as photos from plant_photos where image_url is not null",
+    );
+    stats.photos = row?.photos ?? 0;
+  }
+
+  return NextResponse.json({ photos, counts, stats });
 }
 
 export async function POST(request: Request) {
@@ -112,27 +149,12 @@ export async function POST(request: Request) {
   let storedThumb = "";
 
   if (imageUrl) {
-    if (!/^data:image\/(jpeg|png|webp);base64,/.test(imageUrl)) {
-      return NextResponse.json({ error: "이미지 형식이 올바르지 않습니다." }, { status: 400 });
-    }
-
-    // 썸네일을 비워 보내면 원본이 썸네일 자리에 들어간다. 실제로 저장될 값으로 검사해야
-    // 썸네일 용량 제한이 우회되지 않는다.
-    storedThumb = thumbUrl || imageUrl;
-
-    if (imageUrl.length > MAX_IMAGE_CHARS || storedThumb.length > MAX_THUMB_CHARS) {
-      return NextResponse.json(
-        { error: "사진 용량이 너무 큽니다. 더 작은 사진으로 다시 시도해주세요." },
-        { status: 413 },
-      );
-    }
-
-    if (!/^data:image\/(jpeg|png|webp);base64,/.test(storedThumb)) {
-      return NextResponse.json({ error: "썸네일 형식이 올바르지 않습니다." }, { status: 400 });
-    }
+    const checked = checkImage(imageUrl, thumbUrl);
+    if (!checked.ok) return NextResponse.json({ error: checked.error }, { status: checked.status });
+    storedThumb = checked.thumb;
   }
 
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(capturedAt)) {
+  if (!DATE_RE.test(capturedAt)) {
     return NextResponse.json({ error: "촬영일 형식이 올바르지 않습니다." }, { status: 400 });
   }
 
@@ -171,15 +193,7 @@ export async function POST(request: Request) {
   const photos = await query<PlantPhoto>(
     `insert into plant_photos (plant_id, image_url, thumb_url, note, captured_at)
      values ($1, $2, coalesce($3, ''), $4, $5::date)
-     returning
-       id,
-       plant_id,
-       (select name from plants where id = plant_id) as plant_name,
-       nullif(thumb_url, '') as thumb_url,
-       image_url is not null as has_image,
-       note,
-       captured_at::text,
-       created_at`,
+     returning ${PHOTO_RETURNING}`,
     [plantId || null, imageUrl || null, storedThumb, note.slice(0, 500), capturedAt],
   );
 

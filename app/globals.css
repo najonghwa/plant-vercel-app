@@ -5047,3 +5047,331 @@ body {
 .pick-art .tn-hi {
   display: none;
 }
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   기록: 열어서 고치기 · 식물별로 보기 (2026-10-19)
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* 카드 전체가 버튼 하나. 누르면 기록 창이 열린다. */
+.record-card > .record-open {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  border: 0;
+  background: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.record-open:focus-visible,
+.day-record-open:focus-visible,
+.rf-chip:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 3px;
+}
+
+.record-open .photo-thumb {
+  display: block;
+}
+
+.record-caption {
+  display: grid;
+  gap: 4px;
+  padding: 0 2px 2px;
+}
+
+.record-note {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+/* 식물별로 보기. 폰에서는 옆으로 밀어 넘긴다. */
+.record-filter {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  margin: -2px 0 8px;
+  padding: 2px 2px 10px;
+  scrollbar-width: thin;
+}
+
+.rf-chip {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: baseline;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .55);
+  padding: 6px 13px;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.rf-chip b {
+  color: var(--ink-faint);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.rf-chip:hover {
+  border-color: var(--ink-soft);
+  color: var(--ink);
+}
+
+.rf-chip.on {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.rf-chip.on b {
+  color: inherit;
+  opacity: .7;
+}
+
+/* 사진 고르기. 기본 '파일 선택' 단추 대신 크게. */
+.photo-pick {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 50px;
+  border: 1px dashed var(--ink-faint);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, .55);
+  color: var(--ink);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.photo-pick:hover {
+  border-color: var(--ink-soft);
+  background: #fff;
+}
+
+.photo-pick.busy {
+  opacity: .6;
+  cursor: progress;
+}
+
+.photo-pick-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.date-hint {
+  color: var(--green);
+  font-weight: 600;
+}
+
+.photo-form > .record-submit {
+  grid-column: 1 / -1;
+}
+
+.record-submit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.record-submit .btn {
+  flex: 1 1 auto;
+}
+
+.record-saved {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--green);
+  font-size: 13px;
+  font-weight: 700;
+  animation: fade-in .2s var(--ease-out, ease-out) both;
+}
+
+/* 기록 창: 위에 사진, 아래에 고치는 칸 */
+.photo-viewer.record-viewer {
+  width: min(560px, 100%);
+  min-width: 0;
+  max-height: 92vh;
+  overflow-y: auto;
+  align-content: start;
+}
+
+.record-viewer .photo-viewer-body {
+  min-height: 120px;
+}
+
+.record-viewer .photo-viewer-body img {
+  max-height: 46vh;
+}
+
+.record-noimg {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 24px 0;
+  color: var(--ink-faint);
+  font-size: 13px;
+}
+
+.record-photo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.record-photo-actions .btn {
+  position: relative;
+}
+
+.record-photo-actions label.btn {
+  cursor: pointer;
+}
+
+.record-photo-actions .busy {
+  opacity: .6;
+}
+
+/* 날짜·고르기 칸은 저마다 최소 너비가 있어, 폰에서 창을 오른쪽 밖으로 밀어냈다. 0까지 줄 수 있게 한다. */
+.record-viewer > *,
+.record-edit > *,
+.record-edit .input,
+.record-edit .select {
+  min-width: 0;
+}
+
+.record-edit .input,
+.record-edit .select {
+  width: 100%;
+}
+
+.record-edit {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px 12px;
+  border-top: 1px solid var(--line-soft);
+  padding-top: 12px;
+}
+
+.record-edit .record-edit-note,
+.record-edit .record-error,
+.record-edit .record-edit-actions {
+  grid-column: 1 / -1;
+}
+
+.record-edit .textarea {
+  min-height: 72px;
+}
+
+.record-error {
+  margin: 0;
+  color: var(--rose);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.record-edit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.record-edit-actions .btn.primary {
+  margin-left: auto;
+}
+
+/* 캘린더 팝업의 기록 줄: 사진과 글 전체를 눌러 연다 */
+.day-record {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.day-record-open {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  border: 0;
+  background: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.day-record-open .day-record-thumb {
+  flex: 0 0 40px;
+}
+
+.day-record-note {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  /* 두 칸 카드에서 이름과 날짜가 나란히 서면 둘 다 꺾인다. 위아래로 쌓는다. */
+  .record-card .photo-caption-main {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+  }
+
+  .record-edit {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .photo-viewer.record-viewer {
+    padding: 12px;
+  }
+
+  .record-viewer .photo-viewer-body img {
+    max-height: 38vh;
+  }
+
+  .record-edit-actions .btn {
+    flex: 1 1 auto;
+  }
+}
+
+/* 식물별 칸 줄(옆으로 미는 줄)의 전체 길이가 판의 최소 너비로 잡혀, 폰에서 기록 탭이
+   화면보다 넓어졌다. 판이 화면 너비 안으로 줄어들게 하고 칸 줄은 그 안에서 민다. */
+.photo-layout > .panel {
+  min-width: 0;
+}
+
+.record-filter {
+  max-width: 100%;
+}
+
+/* 기록 탭으로 넘어와 입력칸에 맞춰 스크롤한 뒤, 아래 모아보기가 채워지는 순간
+   브라우저의 스크롤 고정(scroll anchoring)이 화면을 300px쯤 끌어내려 입력칸이 다시 위로 사라졌다.
+   고정 기준점이 기록 판 바깥(페이지 단)에서 잡혀, 판에만 끄면 소용이 없었다.
+   이 앱은 탭마다 내용을 통째로 갈아 끼우므로 페이지 전체에서 끈다. */
+html {
+  overflow-anchor: none;
+}
